@@ -1,0 +1,47 @@
+From c90dfe11b3d0b9a7448a57b8b44c070ce05da7f2 Mon Sep 17 00:00:00 2001
+From: Safeuq Mohamed <mohamedsafeuq@gmail.com>
+Date: Sat, 14 Nov 2026 23:19:35 +0530
+Subject: [PATCH] Move Dictionary::old_if_redefining out of the header
+
+dictionary.hpp only forward-declares InstanceKlass, so the inline body
+compiles only with precompiled headers. Termux builds without them.
+---
+ src/hotspot/share/classfile/dictionary.cpp | 6 ++++++
+ src/hotspot/share/classfile/dictionary.hpp | 4 +---
+ 2 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/src/hotspot/share/classfile/dictionary.cpp b/src/hotspot/share/classfile/dictionary.cpp
+index 1a3565496..b37c23a9f 100644
+--- a/src/hotspot/share/classfile/dictionary.cpp
++++ b/src/hotspot/share/classfile/dictionary.cpp
+@@ -207,6 +207,12 @@ InstanceKlass* Dictionary::find_class(Thread* current, Symbol* class_name) {
+   return old_if_redefining(result);
+ }
+ 
++// Defined here rather than in dictionary.hpp, which only forward-declares InstanceKlass.
++// The inline body there compiles only when precompiled headers pull in instanceKlass.hpp.
++InstanceKlass* Dictionary::old_if_redefining(InstanceKlass* k) {
++  return (k != nullptr && k->is_redefining()) ? ((InstanceKlass* )k->old_version()) : k;
++}
++
+ class UpdateKlassDcevm : public StackObj {
+   InstanceKlass* _new_klass;
+   InstanceKlass* _old_klass;
+diff --git a/src/hotspot/share/classfile/dictionary.hpp b/src/hotspot/share/classfile/dictionary.hpp
+index fc6b14323..27cbdc9e8 100644
+--- a/src/hotspot/share/classfile/dictionary.hpp
++++ b/src/hotspot/share/classfile/dictionary.hpp
+@@ -82,9 +82,7 @@ class Dictionary : public CHeapObj<mtClass> {
+   void rollback_redefinition();
+ private:
+   // (DCEVM) return old class if redefining in AllowEnhancedClassRedefinition, otherwise return "k"
+-  static InstanceKlass* old_if_redefining(InstanceKlass* k) {
+-    return (k != nullptr && k->is_redefining()) ? ((InstanceKlass* )k->old_version()) : k;
+-  }
++  static InstanceKlass* old_if_redefining(InstanceKlass* k);
+ };
+ 
+ #endif // SHARE_CLASSFILE_DICTIONARY_HPP
+-- 
+2.47.0
+

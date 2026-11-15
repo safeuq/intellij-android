@@ -1,0 +1,205 @@
+From 85e3e0bf1d5fe874fc0a2a5bf1f074412d32106d Mon Sep 17 00:00:00 2001
+From: Safeuq Mohamed <mohamedsafeuq@gmail.com>
+Date: Sun, 15 Nov 2026 00:41:31 +0530
+Subject: [PATCH] List known children of folders Android refuses to list
+
+On Android an app may pass through /, /data, /data/data and /storage but
+not list them (EACCES), and the shared-storage mount /storage/emulated
+reports ENOENT although it exists. Files.newDirectoryStream then fails,
+and IntelliJ's VFS refresh reads that as an empty folder and marks the
+whole tree below as deleted.
+
+For a folder that exists but can't be listed, return the existing
+children on the path to known folders instead: the Termux prefix,
+user.home, $EXTERNAL_STORAGE (and its real path), mount points under
+/storage/, and any folders added in jdk.nio.fs.unlistableDirectoryHints.
+---
+ .../sun/nio/fs/UnixFileSystemProvider.java    | 146 ++++++++++++++++++
+ 1 file changed, 146 insertions(+)
+
+diff --git a/src/java.base/unix/classes/sun/nio/fs/UnixFileSystemProvider.java b/src/java.base/unix/classes/sun/nio/fs/UnixFileSystemProvider.java
+index beb9a1af4..214ba154f 100644
+--- a/src/java.base/unix/classes/sun/nio/fs/UnixFileSystemProvider.java
++++ b/src/java.base/unix/classes/sun/nio/fs/UnixFileSystemProvider.java
+@@ -39,6 +39,7 @@
+ import java.nio.file.FileStore;
+ import java.nio.file.FileSystem;
+ import java.nio.file.FileSystemAlreadyExistsException;
++import java.nio.file.Files;
+ import java.nio.file.LinkOption;
+ import java.nio.file.NotDirectoryException;
+ import java.nio.file.NotLinkException;
+@@ -52,6 +53,10 @@
+ import java.nio.file.attribute.PosixFileAttributes;
+ import java.nio.file.attribute.PosixFileAttributeView;
+ import java.nio.file.spi.FileTypeDetector;
++import java.util.ArrayList;
++import java.util.Iterator;
++import java.util.LinkedHashSet;
++import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
+ import java.util.concurrent.ExecutorService;
+@@ -437,6 +442,11 @@ public DirectoryStream<Path> newDirectoryStream(Path obj, DirectoryStream.Filter
+             } catch (UnixException x) {
+                 if (x.errno() == ENOTDIR)
+                     throw new NotDirectoryException(dir.getPathForExceptionMessage());
++                if (isUnlistableDirectory(dir, x.errno())) {
++                    final DirectoryStream<Path> knownChildren = newKnownChildrenStream(dir, filter);
++                    if (knownChildren != null)
++                        return knownChildren;
++                }
+                 x.rethrowAsIOException(dir);
+             }
+         }
+@@ -458,11 +468,147 @@ public DirectoryStream<Path> newDirectoryStream(Path obj, DirectoryStream.Filter
+                 UnixNativeDispatcher.close(dfd1, e -> null);
+             if (dfd2 != -1)
+                 UnixNativeDispatcher.close(dfd2, e -> null);
++            if (isUnlistableDirectory(dir, x.errno())) {
++                final DirectoryStream<Path> knownChildren = newKnownChildrenStream(dir, filter);
++                if (knownChildren != null)
++                    return knownChildren;
++            }
+             throw ioe;
+         }
+         return new UnixSecureDirectoryStream(dir, dp, dfd2, filter);
+     }
+ 
++    // Termux/Android: an app may pass through /, /data, /data/data and /storage but may not
++    // list them, so opening them for reading fails with EACCES; the shared-storage mount
++    // /storage/emulated fails with ENOENT although it exists. Callers that read a failed
++    // listing as "no entries" then treat everything below as deleted; IntelliJ's VFS refresh
++    // does this and drops the open project. For such a directory, list instead the existing
++    // children that lie on the path to known folders: the Termux prefix, user.home, shared
++    // storage ($EXTERNAL_STORAGE), mounted volumes under /storage, and any folders added in
++    // this property (separated by ':').
++    private static final String UNLISTABLE_DIRECTORY_HINTS_PROPERTY =
++        "jdk.nio.fs.unlistableDirectoryHints";
++    private static final String TERMUX_PREFIX = "@TERMUX_PREFIX@";
++    private static final String STORAGE_MOUNT_ROOT = "/storage/";
++
++    /**
++     * Whether a directory-open failure means "exists but may not be listed" rather than a
++     * real error: EACCES, or ENOENT for a path that stat reports as an existing directory.
++     */
++    private static boolean isUnlistableDirectory(final UnixPath dir, final int errno) {
++        if (errno == EACCES)
++            return true;
++        if (errno != ENOENT)
++            return false;
++        try {
++            final UnixFileAttributes attributes = UnixFileAttributes.getIfExists(dir);
++            return attributes != null && attributes.isDirectory();
++        } catch (UnixException statFailure) {
++            return false;
++        }
++    }
++
++    private static List<String> unlistableDirectoryHints() {
++        final List<String> hints = new ArrayList<>();
++        hints.add(TERMUX_PREFIX);
++        final String userHome = System.getProperty("user.home");
++        if (userHome != null)
++            hints.add(userHome);
++        final String externalStorage = System.getenv("EXTERNAL_STORAGE");
++        if (externalStorage != null)
++            hints.add(externalStorage);
++        hints.addAll(storageMountPoints());
++        final String extraHints = System.getProperty(UNLISTABLE_DIRECTORY_HINTS_PROPERTY);
++        if (extraHints != null)
++            hints.addAll(List.of(extraHints.split(":")));
++        return hints;
++    }
++
++    /** Mount points under /storage/ (shared storage, SD cards, USB drives). */
++    private static List<String> storageMountPoints() {
++        final List<String> mountPoints = new ArrayList<>();
++        try {
++            for (final String mountLine : Files.readAllLines(Path.of("/proc/self/mounts"))) {
++                final String[] fields = mountLine.split(" ");
++                if (fields.length > 1) {
++                    // /proc/self/mounts writes a space in a path as \040
++                    final String mountPoint = fields[1].replace("\\040", " ");
++                    if (mountPoint.startsWith(STORAGE_MOUNT_ROOT))
++                        mountPoints.add(mountPoint);
++                }
++            }
++        } catch (IOException | RuntimeException mountsUnreadable) {
++            // without the mount table, the other hints still apply
++        }
++        return mountPoints;
++    }
++
++    private static Path realPathOrSelf(final Path path) {
++        try {
++            return path.toRealPath();
++        } catch (IOException missingOrUnresolvable) {
++            return path;
++        }
++    }
++
++    /**
++     * Returns a stream over the hinted children of a directory that exists but could not be
++     * listed, or null when none of the hints lie below it.
++     */
++    private static DirectoryStream<Path> newKnownChildrenStream(final UnixPath dir,
++                                                                final DirectoryStream.Filter<? super Path> filter)
++        throws IOException
++    {
++        final Path absoluteDir = dir.toAbsolutePath().normalize();
++        final Set<String> childNames = new LinkedHashSet<>();
++        for (final String hint : unlistableDirectoryHints()) {
++            if (hint.isEmpty())
++                continue;
++            final Path hintPath = dir.getFileSystem().getPath(hint).normalize();
++            // Both the hint as given and its target: /sdcard must be reachable from /, and
++            // its real path /storage/emulated/0 from /storage/emulated.
++            for (final Path candidate : List.of(hintPath, realPathOrSelf(hintPath))) {
++                if (candidate.isAbsolute() && candidate.startsWith(absoluteDir)
++                        && candidate.getNameCount() > absoluteDir.getNameCount()) {
++                    childNames.add(candidate.getName(absoluteDir.getNameCount()).toString());
++                }
++            }
++        }
++
++        final List<Path> entries = new ArrayList<>();
++        for (final String childName : childNames) {
++            final UnixPath entry = UnixPath.toUnixPath(dir.resolve(childName));
++            try {
++                if (UnixFileAttributes.getIfExists(entry) != null && filter.accept(entry))
++                    entries.add(entry);
++            } catch (UnixException statFailure) {
++                // the child can't be checked either, so leave it out
++            }
++        }
++        if (entries.isEmpty())
++            return null;
++
++        return new DirectoryStream<>() {
++            private boolean iteratorObtained;
++            private boolean closed;
++
++            @Override
++            public synchronized Iterator<Path> iterator() {
++                if (closed)
++                    throw new IllegalStateException("Directory stream is closed");
++                if (iteratorObtained)
++                    throw new IllegalStateException("Iterator already obtained");
++                iteratorObtained = true;
++                return List.copyOf(entries).iterator();
++            }
++
++            @Override
++            public synchronized void close() {
++                closed = true;
++            }
++        };
++    }
++
+     @Override
+     public void createSymbolicLink(Path obj1, Path obj2, FileAttribute<?>... attrs)
+         throws IOException
+-- 
+2.47.0
+

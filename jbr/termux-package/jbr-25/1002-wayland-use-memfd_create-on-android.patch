@@ -1,0 +1,57 @@
+From 34a3442c23092e6931874ad56a98c4055111c84e Mon Sep 17 00:00:00 2001
+From: Safeuq Mohamed <mohamedsafeuq@gmail.com>
+Date: Sun, 15 Nov 2026 00:04:19 +0530
+Subject: [PATCH] Use memfd_create for Wayland shared memory on Android
+
+Bionic has no shm_open/shm_unlink, so libawt_wlawt fails to compile.
+memfd_create gives the same anonymous shared memory without a name.
+---
+ .../unix/native/common/wayland/memory_utils.c     | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/src/java.desktop/unix/native/common/wayland/memory_utils.c b/src/java.desktop/unix/native/common/wayland/memory_utils.c
+index 97996c60e..4deb20cc9 100644
+--- a/src/java.desktop/unix/native/common/wayland/memory_utils.c
++++ b/src/java.desktop/unix/native/common/wayland/memory_utils.c
+@@ -35,6 +35,12 @@
+ #include <errno.h>
+ #include <fcntl.h>
+ 
++#ifdef __ANDROID__
++#include <sys/syscall.h>
++#include <linux/memfd.h>
++#endif
++
++#ifndef __ANDROID__
+ static void
+ RandomName(char *buf) {
+     struct timespec ts;
+@@ -45,9 +51,17 @@ RandomName(char *buf) {
+         r >>= 5;
+     }
+ }
++#endif
+ 
+ static int
+ CreateSharedMemoryFile(const char* baseName) {
++#ifdef __ANDROID__
++    // Bionic has no shm_open/shm_unlink. memfd_create gives the same result as the
++    // shm_open + shm_unlink pair below: an fd to anonymous shared memory with no name
++    // left behind. Called through syscall() because bionic declares memfd_create only
++    // from API 30, and Termux builds for API 24.
++    return (int) syscall(__NR_memfd_create, baseName, MFD_CLOEXEC);
++#else
+     // constructing the full name of the form /baseName-XXXXXX
+     int baseLen = strlen(baseName);
+     char *name = (char*) malloc(baseLen + 9);
+@@ -70,6 +84,7 @@ CreateSharedMemoryFile(const char* baseName) {
+     } while (retries > 0 && errno == EEXIST);
+     free(name);
+     return -1;
++#endif
+ }
+ 
+ int
+-- 
+2.47.0
+

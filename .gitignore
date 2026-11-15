@@ -1,0 +1,5 @@
+# Upstream sources fetched by the scripts (termux-packages, JBR dev tree)
+/work/
+# Built packages and build logs
+/output/
+/logs/

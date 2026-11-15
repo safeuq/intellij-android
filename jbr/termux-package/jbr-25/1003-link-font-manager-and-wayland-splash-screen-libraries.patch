@@ -1,0 +1,77 @@
+From 09b5cc68f8ab7f5760e485d43621d6016c2b3c8c Mon Sep 17 00:00:00 2001
+From: Safeuq Mohamed <mohamedsafeuq@gmail.com>
+Date: Sun, 15 Nov 2026 00:10:15 +0530
+Subject: [PATCH] Link font manager libraries to libawt_xawt and Wayland splash
+ screen to iconv
+
+Android's loader does not resolve undefined symbols from libraries Java
+loaded earlier, which libfontmanager, libfontmanager_xawt and
+libwlsplashscreen rely on. Replaces Termux's 0014, which hard-coded
+-lawt_xawt and broke headless-only builds.
+---
+ .../java.desktop/lib/ClientLibraries.gmk      | 21 ++++++++++++++++---
+ 1 file changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/make/modules/java.desktop/lib/ClientLibraries.gmk b/make/modules/java.desktop/lib/ClientLibraries.gmk
+index df4818446..0e9589c80 100644
+--- a/make/modules/java.desktop/lib/ClientLibraries.gmk
++++ b/make/modules/java.desktop/lib/ClientLibraries.gmk
+@@ -299,7 +299,7 @@ ifeq ($(ENABLE_HEADLESS_ONLY), false)
+       CFLAGS := $(LIBWLSPLASHSCREEN_CFLAGS) \
+           $(GIFLIB_CFLAGS) $(LIBJPEG_CFLAGS) $(PNG_CFLAGS) $(LIBZ_CFLAGS), \
+       EXTRA_HEADER_DIRS := $(LIBSPLASHSCREEN_HEADER_DIRS) $(LIBWLSPLASHSCREEN_HEADER_DIRS) libwlsplashscreen, \
+-      LIBS := -lwayland-client -lwayland-cursor $(LIBSPLASHSCREEN_LIBS) -lrt, \
++      LIBS := -lwayland-client -lwayland-cursor $(LIBSPLASHSCREEN_LIBS) $(ICONV_LIBS) -lrt, \
+       LIBS_unix := $(LIBDL) $(LIBM) -lpthread, \
+       LIBS_aix := -liconv, \
+   ))
+@@ -419,6 +419,17 @@ endif
+ 
+ LIBFONTMANAGER_CFLAGS += $(X_CFLAGS) -DLE_STANDALONE -DHEADLESS
+ 
++# Termux/Android: libfontmanager and libfontmanager_xawt leave toolkit symbols undefined
++# (AccelGlyphCache_RemoveAllCellInfos, AWTFreeFont, ...) to be found at runtime in the
++# toolkit library Java loaded earlier. Android's loader does not resolve symbols from
++# libraries loaded that way, so link libawt_xawt directly whenever it is built.
++LIBFONTMANAGER_TOOLKIT_LIBS :=
++ifeq ($(call isTargetOs, linux), true)
++  ifeq ($(ENABLE_HEADLESS_ONLY), false)
++    LIBFONTMANAGER_TOOLKIT_LIBS := -lawt_xawt
++  endif
++endif
++
+ # LDFLAGS clarification:
+ #   Filter relevant linker flags disallowing unresolved symbols as we cannot
+ #   build-time decide to which library to link against (libawt_headless or
+@@ -445,7 +456,7 @@ $(eval $(call SetupJdkLibrary, BUILD_LIBFONTMANAGER, \
+     JDK_LIBS_macosx := libawt_lwawt, \
+     JDK_LIBS_unix := java.base:libjvm, \
+     LIBS := $(LIBFONTMANAGER_LIBS), \
+-    LIBS_unix := $(LIBM), \
++    LIBS_unix := $(LIBFONTMANAGER_TOOLKIT_LIBS) $(LIBM), \
+     LIBS_macosx := \
+         -framework CoreFoundation \
+         -framework CoreGraphics \
+@@ -455,6 +466,10 @@ $(eval $(call SetupJdkLibrary, BUILD_LIBFONTMANAGER, \
+ 
+ TARGETS += $(BUILD_LIBFONTMANAGER)
+ 
++ifneq ($(LIBFONTMANAGER_TOOLKIT_LIBS), )
++  $(BUILD_LIBFONTMANAGER): $(BUILD_LIBAWT_XAWT)
++endif
++
+ ifeq ($(call isTargetOs, windows macosx), false)
+   ifeq ($(ENABLE_HEADLESS_ONLY), false)
+ 
+@@ -486,7 +501,7 @@ ifeq ($(call isTargetOs, windows macosx), false)
+         LDFLAGS_aix := -Wl$(COMMA)-berok, \
+         JDK_LIBS := libfontmanager libawt java.base:libjava $(LIBFONTMANAGER_JDK_LIBS), \
+         LIBS := $(LIBFONTMANAGER_LIBS), \
+-        LIBS_unix := $(LIBM), \
++        LIBS_unix := $(LIBFONTMANAGER_TOOLKIT_LIBS) $(LIBM), \
+     ))
+ 
+     $(BUILD_LIBFONTMANAGER_XAWT): $(BUILD_LIBFONTMANAGER)
+-- 
+2.47.0
+
