@@ -46,6 +46,7 @@ import com.jetbrains.rd.ide.model.RdResetDocumentChange
 import com.jetbrains.rd.ide.model.RdSelection
 import com.jetbrains.rd.ide.model.RdSelectionChangeBase
 import com.jetbrains.rd.ide.model.RdStackSizeItem
+import com.jetbrains.rd.ide.model.RdStringGroupId
 import com.jetbrains.rd.ide.model.RdTextModificationKind
 import com.jetbrains.rd.ide.model.RdTextRange
 import com.jetbrains.rd.ide.model.RdTypeKeyRequest
@@ -57,6 +58,7 @@ import com.jetbrains.rd.ide.model.VirtualFileArrayTimestampModel
 import com.jetbrains.rd.ide.model.VirtualFileTimestampModel
 
 private val DEBUG = System.getenv("CLIENT_EDIT_DEBUG") != null
+private const val CHOOSE_LOOKUP_ITEM = "#Choose Lookup Item"
 
 /** Ids of the client's commands, shared by all editors: negative and counting down, like JetBrains Client's. */
 class CommandChain {
@@ -158,6 +160,20 @@ class EditSession(
 
     val isReady get() = documentVersion.value >= 0
 
+    /** What completion requests name: `RdEditorVersion.caretModelVersion` and `RdDocumentVersion.value`. */
+    val caretModelVersion get() = editorVersion.caretModelVersion
+    val documentVersionValue get() = documentVersion.value
+
+    /** The editor's id in Fleet RPC (`EditorId`): the `kernelEditorId` of its rd text control id. */
+    val kernelEditorId get() = (identity.editorId as? KernelAwareTextControlId)?.kernelEditorId
+
+    private val whenAnswered = mutableListOf<() -> Unit>()
+
+    /** Runs [action] once the backend has answered every pending edit, so it has the same text and caret as here. */
+    fun afterPendingEdits(action: () -> Unit) {
+        if (pending.isEmpty()) action() else whenAnswered += action
+    }
+
     fun hasPending(requestId: Long) = pending.any { it.requestId == requestId }
 
     /** Whether a backend patch touches this document or editor. */
@@ -232,6 +248,22 @@ class EditSession(
         changed(null)
     }
 
+    /**
+     * Inserts a completion item like JetBrains Client's `EditorChooseLookupItem`: the typed [prefix] before the caret
+     * becomes [lookupString]. Recorded: prefix "gre", item "greeting" → change(218, +"eting"). The backend runs the
+     * item's insert handler (parentheses, imports) itself; its extra edits arrive as a different answer, followed here.
+     */
+    fun chooseLookupItem(prefix: String, lookupString: String) {
+        if (!canEdit()) return
+        val start = caret - prefix.length
+        val group = RdStringGroupId("Completion${lookupString.hashCode()}")
+        if (lookupString.startsWith(prefix)) {
+            editorAction("EditorChooseLookupItem", caret, "", lookupString.drop(prefix.length), start + lookupString.length, CHOOSE_LOOKUP_ITEM, CHOOSE_LOOKUP_ITEM, null, group)
+        } else {
+            editorAction("EditorChooseLookupItem", start, prefix, lookupString, start + lookupString.length, CHOOSE_LOOKUP_ITEM, CHOOSE_LOOKUP_ITEM, null, group)
+        }
+    }
+
     fun undo(isUndo: Boolean = true) {
         if (!canEdit()) return
         // No local change: the backend's answer carries the undo. Pending local edits are rolled back first so their
@@ -268,6 +300,7 @@ class EditSession(
             patch?.let(::apply)
         }
         if (pending.isEmpty()) followingBackend = false
+        if (pending.isEmpty() && whenAnswered.isNotEmpty()) whenAnswered.toList().also { whenAnswered.clear() }.forEach { it() }
     }
 
     fun retryOrFailure(requestId: Long) {

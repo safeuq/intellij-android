@@ -32,6 +32,7 @@ val protocolJars = listOf(
 dependencies {
     implementation(files(protocolJars))
     implementation("org.bouncycastle:bcpkix-jdk18on:1.82")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.13.0")
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     testImplementation(kotlin("test"))

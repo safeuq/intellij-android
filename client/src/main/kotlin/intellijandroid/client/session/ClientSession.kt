@@ -57,6 +57,9 @@ import com.jetbrains.rd.ide.model.RowIconModel
 import com.jetbrains.rd.ide.model.Solution
 import com.jetbrains.rd.ide.model.VisibleRange
 import com.jetbrains.rd.ide.model.documentsOperationModel
+import com.jetbrains.rd.ide.model.fleetRpcModel
+import com.jetbrains.rd.ide.model.RdCodeWithMeProject
+import com.jetbrains.rd.ide.model.RdOpenSolution
 import com.jetbrains.rd.ide.model.fileEditorsModel
 import com.jetbrains.rd.ide.model.requestResponseModel
 import com.jetbrains.rd.ide.model.solutionModel
@@ -106,6 +109,8 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
     private val earlyPatches = mutableMapOf<RdDocumentId, MutableList<RdPatch>>()
     private val commands = CommandChain()
     private var requestIds = 0L
+    private var fleet: FleetRpc? = null
+    private var completion: Completion? = null
     private var requestResponse: RequestResponseModel? = null
     private var selectedEditorId: RdFileEditorId? = null
 
@@ -147,23 +152,48 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
 
     // Editing the selected file (docs/split-protocol.md, "Typing"). All local first, then confirmed by the backend.
 
-    fun type(character: Char) = onRd { selectedEditSession()?.type(character) }
+    fun type(character: Char) = onRd {
+        val session = selectedEditSession() ?: return@onRd
+        // While the completion popup is open, identifier letters narrow it down.
+        if (completion?.typed(session, character) != true) session.type(character)
+    }
 
     fun key(key: EditorKey) = onRd {
         val session = selectedEditSession() ?: return@onRd
         when (key) {
-            EditorKey.ENTER -> session.enter()
-            EditorKey.BACKSPACE -> session.backspace()
-            EditorKey.DELETE -> session.delete()
+            EditorKey.ENTER -> { completion?.cancel(); session.enter() }
+            EditorKey.BACKSPACE -> if (completion?.backspace(session) != true) session.backspace()
+            EditorKey.DELETE -> { completion?.cancel(); session.delete() }
         }
     }
 
     /** Moves the caret of the selected file; a selection when [anchor] differs from [offset]. */
-    fun moveCaret(offset: Int, anchor: Int = offset) = onRd { selectedEditSession()?.moveCaret(offset, anchor) }
+    fun moveCaret(offset: Int, anchor: Int = offset) = onRd {
+        completion?.cancel()
+        selectedEditSession()?.moveCaret(offset, anchor)
+    }
 
-    fun undo() = onRd { selectedEditSession()?.undo(isUndo = true) }
+    fun undo() = onRd {
+        completion?.cancel()
+        selectedEditSession()?.undo(isUndo = true)
+    }
 
-    fun redo() = onRd { selectedEditSession()?.undo(isUndo = false) }
+    fun redo() = onRd {
+        completion?.cancel()
+        selectedEditSession()?.undo(isUndo = false)
+    }
+
+    /** Ctrl+Space: basic completion at the caret of the selected file. */
+    fun complete() = onRd {
+        val path = mutableState.value.selectedEditor ?: return@onRd
+        val session = selectedEditSession() ?: return@onRd
+        completion?.complete(path, session) ?: log("Completion is not connected yet")
+    }
+
+    fun lookupKey(key: LookupKey) = onRd { completion?.key(key) }
+
+    /** A tap or click on a completion popup row. */
+    fun chooseLookupItem(itemId: String) = onRd { completion?.choose(itemId) }
 
     private fun selectedEditSession(): EditSession? {
         val path = mutableState.value.selectedEditor ?: return null
@@ -263,12 +293,31 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
             }
         }
 
+        // Fleet RPC rides on this rd model; completion uses it (docs/split-protocol.md, "Code completion").
+        val rdScheduler = requireNotNull(scheduler) { "rd scheduler not set" }
+        val rpc = FleetRpc(protocol.fleetRpcModel, lifetime, rdScheduler, { if (requestIds == 0L) -1 else requestIds }, ::log)
+        fleet = rpc
+
         vfs = protocol.vfsModel
         protocol.solutionModel.solutions.view(lifetime) { solutionLifetime, _, newSolution ->
             log("Project ${newSolution.projectId.value} added")
             projectId = newSolution.projectId
             solution = newSolution
             newSolution.solutionLifecycle.readyForExtsRegistration.set(true)
+            // Fleet RPC names projects by the kernel id, e.g. "m3nniruk9k7j4qsibjui", not by the rd project id.
+            val kernelProjectId = ((newSolution.solutionOpenStrategy as? RdOpenSolution)?.description as? RdCodeWithMeProject)?.kernelProjectId
+            if (kernelProjectId == null) {
+                log("Project has no kernel id; no completion")
+            } else {
+                completion = Completion(
+                    rpc,
+                    kernelProjectId,
+                    editSessionFor = { editorId -> editSessions.entries.firstOrNull { it.value.kernelEditorId == editorId }?.let { pathOf(it.key) to it.value } },
+                    publish = { lookup -> mutableState.update { it.copy(lookup = lookup) } },
+                    log = ::log,
+                )
+                solutionLifetime.onTermination { completion = null }
+            }
             newSolution.editorTabsModel
             // The backend lists each open file's editor here; the client marks the one it shows as visible.
             newSolution.fileEditorsModel.backendDeferredComposites.view(solutionLifetime) { compositeLifetime, compositeId, deferred ->

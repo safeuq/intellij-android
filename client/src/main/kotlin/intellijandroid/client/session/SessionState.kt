@@ -74,6 +74,9 @@ data class EditorFile(
 /** Editor keys that become backend editor actions. */
 enum class EditorKey { ENTER, BACKSPACE, DELETE }
 
+/** Keys the completion popup takes while it is open. */
+enum class LookupKey { UP, DOWN, ACCEPT, CANCEL }
+
 data class SessionState(
     val log: List<String> = emptyList(),
     val failure: String? = null,
@@ -82,4 +85,36 @@ data class SessionState(
     val editors: List<EditorFile> = emptyList(),
     val selectedEditor: String? = null,
     val scheme: EditorScheme? = null,
+    /** The completion popup, if one is open. */
+    val lookup: Lookup? = null,
+)
+
+/**
+ * IntelliJ's completion popup ("lookup") for the editor of [path]. [prefix] is the part of the identifier typed before
+ * the caret, which the items replace; the popup sits under its first character.
+ */
+data class Lookup(
+    val path: String,
+    val items: List<LookupItem>,
+    val selected: Int,
+    val prefix: String,
+    /** False for an autopopup until the user moves the selection: the selected row is then grey, not blue. */
+    val focused: Boolean,
+    /** The tip in the popup's footer ("Press ^. to choose the selected (or first) suggestion…"). */
+    val advertisement: String?,
+)
+
+/** One row: icon, item text (the typed prefix highlighted), tail in grey ("(String s)"), type text on the right. */
+data class LookupItem(
+    val id: String,
+    val lookupString: String,
+    val itemText: String,
+    val tail: String,
+    val typeText: String,
+    val iconPath: String?,
+    val bold: Boolean,
+    val strikeout: Boolean,
+    /** A group shown after the ungrouped items under its own header, e.g. "Commands"; null for ordinary items. */
+    val group: String? = null,
+    val groupOrder: Int = 0,
 )

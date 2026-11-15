@@ -194,6 +194,7 @@ androidComponents {
 dependencies {
     implementation(files(protocolJars.map { name -> prepareProtocolJars.flatMap { it.outputDirectory.file(name) } }))
     implementation("org.bouncycastle:bcpkix-jdk18on:1.82")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.13.0")
     implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.activity:activity-compose:1.13.0")

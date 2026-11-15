@@ -7,6 +7,12 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import intellijandroid.client.session.Lookup
+import intellijandroid.client.session.LookupKey
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -84,10 +90,16 @@ class EditorActions(
     val moveCaret: (Int, Int) -> Unit,
     val undo: () -> Unit,
     val redo: () -> Unit,
+    /** Ctrl+Space. */
+    val complete: () -> Unit = {},
+    /** Keys for the completion popup while it is open. */
+    val lookupKey: (LookupKey) -> Unit = {},
+    /** A click or tap on a completion popup row, by item id. */
+    val chooseLookupItem: (String) -> Unit = {},
 )
 
 @Composable
-fun EditorView(file: EditorFile, scheme: EditorScheme, actions: EditorActions, modifier: Modifier = Modifier) {
+fun EditorView(file: EditorFile, scheme: EditorScheme, actions: EditorActions, modifier: Modifier = Modifier, lookup: Lookup? = null) {
     val fonts = LocalClientFonts.current
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer(cacheSize = 512)
@@ -192,6 +204,15 @@ fun EditorView(file: EditorFile, scheme: EditorScheme, actions: EditorActions, m
         val shift = event.isShiftPressed
         val meta = event.isMetaPressed
         val line = lines.lineOf(caret)
+        if (lookup != null) {
+            when (key) {
+                Key.DirectionUp -> { actions.lookupKey(LookupKey.UP); return true }
+                Key.DirectionDown -> { actions.lookupKey(LookupKey.DOWN); return true }
+                Key.Enter, Key.Tab -> { actions.lookupKey(LookupKey.ACCEPT); return true }
+                Key.Escape -> { actions.lookupKey(LookupKey.CANCEL); return true }
+            }
+        }
+        if (file.editable && event.isCtrlPressed && key == Key.Spacebar) { actions.complete(); return true }
         if (file.editable) {
             when {
                 key == Key.Enter -> { actions.key(EditorKey.ENTER); return true }
@@ -229,9 +250,11 @@ fun EditorView(file: EditorFile, scheme: EditorScheme, actions: EditorActions, m
         return offset
     }
 
+    Box(modifier) {
     LazyColumn(
         state = listState,
-        modifier = modifier
+        modifier = Modifier
+            .fillMaxSize()
             .background(Color(scheme.background))
             .focusRequester(focusRequester)
             .onFocusChanged { focused = it.hasFocus }
@@ -265,6 +288,17 @@ fun EditorView(file: EditorFile, scheme: EditorScheme, actions: EditorActions, m
                 selection = selection,
             )
         }
+    }
+    // The completion popup sits under the caret line, its item text lined up with the first letter of the prefix.
+    lookup?.takeIf { it.items.isNotEmpty() }?.let { current ->
+        val caretItem = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == caretLine } ?: return@let
+        val prefixColumn = caret - lines.starts[caretLine] - current.prefix.length
+        val textOffset = with(density) { LOOKUP_PREFIX_INSET.toPx() }
+        val x = (metrics.gutterWidth + prefixColumn * metrics.charWidth - textOffset).roundToInt().coerceAtLeast(0)
+        Popup(offset = IntOffset(x, caretItem.offset + caretItem.size)) {
+            LookupPopup(current, actions.chooseLookupItem)
+        }
+    }
     }
 }
 

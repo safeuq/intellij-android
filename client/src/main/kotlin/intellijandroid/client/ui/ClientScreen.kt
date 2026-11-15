@@ -53,9 +53,9 @@ fun ClientScreen(state: SessionState, session: ClientSession) {
                 val scheme = state.scheme
                 if (selected != null && scheme != null) {
                     val actions = remember(session) {
-                        EditorActions(session::type, session::key, { offset, anchor -> session.moveCaret(offset, anchor) }, session::undo, session::redo)
+                        EditorActions(session::type, session::key, { offset, anchor -> session.moveCaret(offset, anchor) }, session::undo, session::redo, session::complete, session::lookupKey, session::chooseLookupItem)
                     }
-                    EditorView(selected, scheme, actions, Modifier.fillMaxSize())
+                    EditorView(selected, scheme, actions, Modifier.fillMaxSize(), state.lookup?.takeIf { it.path == selected.path })
                 } else {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         BasicText(

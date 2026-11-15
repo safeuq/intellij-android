@@ -323,3 +323,20 @@ Pixel measurements of the real client (263.7307.200, Islands Dark, default setti
 | Line height | 21 | 21 (JetBrains Mono 12, char width 7.2) |
 
 Open item 3 of section 6 is answered: rows are 22 and there are no git markers in a non-git project.
+
+
+## 8. Completion popup, measured (2026-11-15)
+
+From a screenshot of the real client's popup at 2× (`client/src/main/kotlin/intellijandroid/client/ui/LookupPopup.kt` uses these):
+
+| Item | Value |
+|---|---|
+| Background, border | `#26282C` (`Popup.background` = `layer-1-bg`), 1 px `#33353B` (`layer-1-border`), radius 6 (arc 12) |
+| Row | height 22; item text in the editor font (JetBrains Mono 12), `#BCBEC4` (`CompletionPopup.foreground`) |
+| Typed letters in the item text | `#538AF9` (`CompletionPopup.matchForeground`) |
+| Tail ("(String s)"), type on the right, group header, footer | `#73767C` (`text-secondary`); header and footer in Inter |
+| Selection | inset 3 from the border; `#33353B` grey while the autopopup has not been navigated (SEMI_FOCUSED), `#2A4371` once it has (FOCUSED) |
+| Horizontal | icon 16 at 11 from the border, item text at 32, type text ends 17 before the right border |
+| Vertical | 2 between border and first row; groups ("Commands") get a 1 px separator 4 below the previous row, then a 22 high header |
+| Footer tip | 12 from the left border (`Popup.Advertiser borderInsets 6,12,6,12`) |
+| Position | just under the caret line; the item text starts 6.5 to the right of the typed prefix |

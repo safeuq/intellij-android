@@ -713,6 +713,36 @@ Found while testing:
 - Not run on a real phone yet. On the phone the backend runs in Termux on the same device, so its join link (`tcp://127.0.0.1:5990#…`) should work as printed (**Inferred**).
 - A layout for portrait screens, touch selection handles, pinch zoom, copy and paste.
 
+## Code completion (step 6)
+
+The editor shows IntelliJ's completion popup: it opens by itself after a typed letter or `.`, and with Ctrl+Space. Typing narrows it, Up/Down move the selection, Enter or Tab inserts, Esc closes, and a tap or click on a row inserts that row. Tested 2026-11-15 against the Mac backend, after recording the real client doing the same (`protocol.*` trace, 22:13–22:16 IST). Full message reference: [`completion-protocol.md`](completion-protocol.md). **Seen** unless marked.
+
+Completion is the first feature here that doesn't run over rd models but over **Fleet RPC**: JSON messages carried as strings on the rd signals `FleetRpcModel.outgoing` / `incoming` ([Fleet RPC, carried by one rd model](#fleet-rpc-carried-by-one-rd-model)). The client opens three streams on `RpcCompletionService` once per connection:
+
+| Call | Direction | Carries |
+|---|---|---|
+| `autopopupRequests(projectId)` | backend → client | "open the popup now" after a typed letter: `{"editorId":{"id":"70vmfjiscs4p4bgvtqfk"},"completionType":"BASIC","caretModelVersion":9,"documentVersion":4}` |
+| `commandFlow(commands)` | client → backend | `OpenSession`, `StartRequest`, `PrefixChanged`, `LookupEvent` (selection, item chosen, cancel), `CloseSession` |
+| `responseFlow()` | backend → client | per session: `NewItems`, `NewArrangement` (order and which items match), `CompletionItemsFinished`, `CompletionFinished` |
+
+The ids come over rd, so no Rhizome database is needed:
+
+| Fleet RPC id | Taken from | Example |
+|---|---|---|
+| `editorId` | `KernelAwareTextControlId.kernelEditorId` of the editor's rd text control | `70vmfjiscs4p4bgvtqfk` |
+| `projectId` | `Solution.solutionOpenStrategy` → `RdOpenSolution.description` → `RdCodeWithMeProject.kernelProjectId` | `m3nniruk9k7j4qsibjui` (rd project id: `23888a6f-…:3M6rEz4vrG2nGEN0sL75lPcBKBz`) |
+
+A request names no offset or text: `StartRequest` carries the editor's `caretModelVersion` and the document's version value, and the backend uses its own copy of the editor. The call `meta` carries `PatchEngineSynchronizationData.lastQueuedRequest`, the id of the last rd request, so the backend applies the typed text before it answers.
+
+Choosing an item is two messages, in this order: `ItemSelected` on `commandFlow`, then an ordinary rd editor action `EditorChooseLookupItem` whose patch inserts the rest of the word (prefix `gre`, item `greeting`: `change(218, +"eting")`). The backend runs the item's insert handler itself; for `length()` its answer adds `(` and `)` and moves the caret between them, and the client follows ([Editing (step 4)](#editing-step-4)).
+
+### Not done yet
+
+- Ctrl+Space a second time (more results) is sent but not checked; smart and class-name completion are not bound to keys.
+- Characters that insert the selected item and then themselves (`.` or `(` in a focused popup) close the popup instead.
+- The documentation popup beside the list, the "press '.' to show commands" hint and the footer's "Next Tip" are not shown.
+- On Android: no Ctrl+Space on the soft keyboard; the popup opens by itself, and rows are tapped.
+
 ## Plan for the client that follows from this
 
 1. **Reuse:** rd-core, rd-framework (with `UnsafeBuffer` patched), rd-text, and the two generated model jars of the **exact** backend build (class version lowered, resource files kept). Plus kotlin-stdlib and kotlinx-coroutines.
