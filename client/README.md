@@ -1,13 +1,14 @@
 # Compose client
 
-A native client for IntelliJ's split mode (remote development), written with Compose Multiplatform. For now it runs on the desktop JVM. It connects to a backend and shows IntelliJ's Project tree and an editor with the backend's highlighting that you can type in, in IntelliJ's Islands Dark look ([`docs/intellij-look.md`](../docs/intellij-look.md)). How the protocol works: [`docs/split-protocol.md`](../docs/split-protocol.md), sections "Connection setup", "Our own client (step 2)" and "Editing (step 4)"; the edit messages in detail: [`docs/edit-protocol.md`](../docs/edit-protocol.md).
+A native client for IntelliJ's split mode (remote development), written with Compose. It runs on the desktop JVM and, as an Android app, on a phone ([`android/`](android/README.md)); both build the same sources in `src/main/kotlin`. It connects to a backend and shows IntelliJ's Project tree and an editor with the backend's highlighting that you can type in, in IntelliJ's Islands Dark look ([`docs/intellij-look.md`](../docs/intellij-look.md)). How the protocol works: [`docs/split-protocol.md`](../docs/split-protocol.md), sections "Connection setup", "Our own client (step 2)" and "Editing (step 4)"; the edit messages in detail: [`docs/edit-protocol.md`](../docs/edit-protocol.md).
 
-| Package | What | Platform |
+| Folder | What | Platform |
 |---|---|---|
-| `connection/` | join link, client certificate (BouncyCastle), TLS 1.3, DEFLATE frames, handshake, the rd wire | plain JVM; should run on Android as is |
-| `session/` | rd protocol and the models the editor needs; exposes a `StateFlow<SessionState>` | plain JVM + rd jars |
-| `ui/` | Project tree, editor, window layout; common Compose APIs only. Fonts and icons come in through `LocalClientFonts` / `LocalIcons` | Compose (desktop now, Android later) |
-| `desktop/`, `Main.kt` | window, fonts and icons read from the JetBrains Client install, off-screen snapshots | desktop only |
+| `src/main/kotlin/…/connection/` | join link, client certificate (BouncyCastle), TLS 1.3, DEFLATE frames, handshake, the rd wire | JVM and Android |
+| `src/main/kotlin/…/session/` | rd protocol and the models the editor needs; exposes a `StateFlow<SessionState>` | JVM and Android, with the rd jars |
+| `src/main/kotlin/…/ui/` | Project tree, editor, window layout; common Compose APIs only. Fonts, icons and the editor's text input come in through `LocalClientFonts`, `LocalIcons`, `LocalEditorTextInput` | JVM and Android |
+| `src/desktop/kotlin/` | `Main.kt` and `desktop/`: window, fonts and icons read from the JetBrains Client install, off-screen snapshots | desktop only |
+| `android/` | the Android app: its own Gradle build over `src/main/kotlin` | Android only |
 
 ## Run
 

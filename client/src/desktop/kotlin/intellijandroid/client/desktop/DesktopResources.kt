@@ -8,10 +8,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.platform.Font
 import androidx.compose.ui.unit.Density
 import intellijandroid.client.ui.ClientFonts
+import intellijandroid.client.ui.IconJar
 import intellijandroid.client.ui.IconProvider
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
-import java.util.zip.ZipFile
 
 /**
  * Desktop sources for fonts and icons: both ship with JetBrains Client, next to the protocol jars.
@@ -36,21 +36,11 @@ object DesktopResources {
         )
     }
 
-    /**
-     * IntelliJ's own icons from `intellij.platform.icons.jar`, picked like a dark theme does: `<name>_dark.svg` first,
-     * then `<name>.svg`; then the Islands Dark palette swap `#CED0D6` → `#C3C5CB`.
-     */
+    /** Icons from [IconJar], drawn with Skia. */
     class JarIcons(clientLib: File, private val density: Density) : IconProvider {
-        private val jar = ZipFile(clientLib.resolve("intellij.platform.icons.jar").also { check(it.isFile) { "Missing $it" } })
+        private val jar = IconJar(clientLib.resolve("intellij.platform.icons.jar"))
         private val cache = ConcurrentHashMap<String, Painter?>()
 
-        override fun painter(path: String): Painter? = cache.computeIfAbsent(path, ::load)
-
-        private fun load(path: String): Painter? {
-            val name = path.removePrefix("/")
-            val entry = jar.getEntry(name.removeSuffix(".svg") + "_dark.svg") ?: jar.getEntry(name) ?: return null
-            val svg = jar.getInputStream(entry).use { it.readBytes().decodeToString() }.replace("#CED0D6", "#C3C5CB", ignoreCase = true)
-            return loadSvgPainter(svg.byteInputStream(), density)
-        }
+        override fun painter(path: String): Painter? = cache.computeIfAbsent(path) { jar.svg(it)?.let { svg -> loadSvgPainter(svg.byteInputStream(), density) } }
     }
 }

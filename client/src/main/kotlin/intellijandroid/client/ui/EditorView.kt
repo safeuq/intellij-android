@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
@@ -148,6 +149,26 @@ fun EditorView(file: EditorFile, scheme: EditorScheme, actions: EditorActions, m
         while (focused) { delay(500); caretOn = !caretOn }
     }
 
+    // Keep the caret's line on screen: after typing or arrows past an edge, and when the view gets shorter
+    // (on Android the soft keyboard takes the lower half of the screen).
+    val caretLine = lines.lineOf(caret)
+    val viewportHeight = listState.layoutInfo.viewportSize.height
+    LaunchedEffect(caretLine, viewportHeight, focused) {
+        if (!focused || viewportHeight == 0) return@LaunchedEffect
+        val layout = listState.layoutInfo
+        val item = layout.visibleItemsInfo.firstOrNull { it.index == caretLine }
+        val lineHeight = layout.visibleItemsInfo.firstOrNull()?.size ?: 0
+        when {
+            item == null && caretLine < listState.firstVisibleItemIndex -> listState.scrollToItem(caretLine)
+            item == null -> {
+                listState.scrollToItem(caretLine)
+                listState.scrollBy(-(layout.viewportEndOffset - layout.viewportStartOffset - lineHeight).toFloat())
+            }
+            item.offset < layout.viewportStartOffset -> listState.scrollBy((item.offset - layout.viewportStartOffset).toFloat())
+            item.offset + item.size > layout.viewportEndOffset -> listState.scrollBy((item.offset + item.size - layout.viewportEndOffset).toFloat())
+        }
+    }
+
     fun moveTo(offset: Int, extend: Boolean, keepColumn: Boolean = false) {
         val now = currentFile
         val target = offset.coerceIn(0, now.text.length)
@@ -214,6 +235,7 @@ fun EditorView(file: EditorFile, scheme: EditorScheme, actions: EditorActions, m
             .background(Color(scheme.background))
             .focusRequester(focusRequester)
             .onFocusChanged { focused = it.hasFocus }
+            .then(LocalEditorTextInput.current)
             .focusable()
             .onPreviewKeyEvent { event -> event.type == KeyEventType.KeyDown && onKey(event) }
             .pointerInput(file.path, metrics) {

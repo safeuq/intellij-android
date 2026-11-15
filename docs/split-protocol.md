@@ -678,8 +678,40 @@ Gutter icons come in the per-project markup as `GutterMarkHighlighterModel` (the
 ### Not done yet
 
 - Smart typing locally (closing brackets, smart backspace): the backend does it and the client follows, so the text jumps once the answer arrives.
-- Multiple carets, folding, IME (needed for Android's soft keyboard), copy and paste.
+- Multiple carets, folding, copy and paste. (Soft keyboard: done in [The Android app (step 5)](#the-android-app-step-5).)
 - Indent guides: `IndentGuideHighlighterModel` never arrived in the tests.
+
+## The Android app (step 5)
+
+`client/android/` builds the client as an Android app from the same sources as the desktop client (`client/src/main/kotlin`). Kotlin Multiplatform can't share one source set between a JVM target and an Android target, so the app is a separate Gradle build that adds that folder to its sources. Tested 2026-11-15 21:08–21:11 IST on the Android emulator (Pixel 3a image, API 34) against the Mac backend, through `adb reverse tcp:5990 tcp:5990`: the client connects, shows the Project tree and the editor with all highlighting, expands folders, and takes typing from the soft keyboard. **Seen** unless marked.
+
+What the build does with JetBrains Client's files (`client/android/build.gradle.kts`):
+
+| Input | Done at build time | Why |
+|---|---|---|
+| the five protocol jars | class files above version 61 get version 61 | D8 rejects 69 ([Problem 2](#problem-2-class-file-version-69)); not checked whether AGP 9.5's D8 still does |
+| `intellij.libraries.rd.framework.jar` | `UnsafeBuffer`'s 105 `sun.misc.Unsafe` uses are rewritten to `ArtUnsafeShim`, and the shim is added to the jar | [Problem 1](#problem-1-sunmiscunsafe-on-art); the shim is compiled against the JDK because `android.jar` has no `sun.misc.Unsafe` |
+| `splitMarshallers.txt`, `marshallers.txt` | kept in the jars; AGP packages them as Java resources | [Problem 3](#problem-3-resource-files) |
+| JetBrains Mono, Inter, `intellij.platform.icons.jar` | packaged as assets | the desktop client reads them from the install |
+
+Platform pieces in the app, all in `client/android/src/main/kotlin/`:
+
+| Piece | How |
+|---|---|
+| Icons | AndroidSVG draws each SVG into a bitmap at the screen's density. Before drawing, the SVG's `width="16"` must be changed to `100%`: with an absolute size AndroidSVG draws 16 px, about a third of 16 dp on a 2.75× screen |
+| Soft keyboard | a `PlatformTextInputModifierNode` on the editor opens an input connection with `inputType = TYPE_NULL`. Gboard then sends key events (`EditorInfo inputType=0x0(NULL)` in its log), which reach the editor's key handler like a hardware keyboard's. No suggestions or composing text |
+| Layout | landscape only; the 300 dp Project tree leaves no room in portrait |
+
+Found while testing:
+
+- Gboard's Enter after `System.out.println(greeting);x` gave a new line indented by 12 spaces, not 4: the backend applies IntelliJ's continuation indent to the unfinished statement, and the client follows its answer ([edit-protocol.md §11](edit-protocol.md#11-checked-with-our-client-against-the-mac-backend-2026-11-15)).
+- The keyboard covers the lower half of a landscape screen. The editor now scrolls the caret's line into view whenever the caret moves or the view's height changes. The same code runs on the desktop, where it is not tested yet.
+- AGP 9.5 needs Gradle 9.6 and, with the 2026.09 Compose BOM, `compileSdk 37`; dex merging the model jars needs more than Gradle's default 512 MB heap.
+
+### Not done yet
+
+- Not run on a real phone yet. On the phone the backend runs in Termux on the same device, so its join link (`tcp://127.0.0.1:5990#…`) should work as printed (**Inferred**).
+- A layout for portrait screens, touch selection handles, pinch zoom, copy and paste.
 
 ## Plan for the client that follows from this
 

@@ -47,7 +47,8 @@ python3 -I "$here/downgrade-class-version.py" "$model_generated" "$build/model-g
 
 # 2. Compile the shim, the rewriter, the checks and the probes.
 classpath="$asm:$rd_core:$rd_framework:$coroutines:$KOTLIN_STDLIB:$build/split-protocol-v61.jar:$build/model-generated-v61.jar"
-find "$here/src" -name '*.java' > "$build/sources.txt"
+# The shim lives in the Android app now.
+find "$here/src" "$here/../../android/rd-patch" -name '*.java' > "$build/sources.txt"
 "$JAVA_HOME/bin/javac" --release 17 -nowarn -XDignore.symbol.file -d "$build/classes" -cp "$classpath" @"$build/sources.txt" 2>&1 \
   | grep -v -e '^Note' -e '^import ' -e 'internal proprietary API' -e '^ ' -e 'warnings\?$' -e '^\S*\.java:[0-9]*: warning' || true
 

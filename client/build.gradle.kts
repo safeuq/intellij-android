@@ -44,6 +44,8 @@ java {
 
 kotlin {
     compilerOptions { jvmTarget = JvmTarget.JVM_21 }
+    // src/main/kotlin is shared with the Android app (android/); src/desktop/kotlin is the desktop entry point.
+    sourceSets.named("main") { kotlin.srcDir("src/desktop/kotlin") }
 }
 
 tasks.test { useJUnitPlatform() }
