@@ -1,0 +1,29 @@
+--- a/inotify.c
++++ b/inotify.c
+@@ -14,6 +14,13 @@
+ 
+ 
+ #define WATCH_COUNT_NAME "/proc/sys/fs/inotify/max_user_watches"
++#ifdef __ANDROID__
++// Android doesn't let apps read WATCH_COUNT_NAME. The count only sizes the watch table, which is indexed by
++// watch descriptor modulo its size, so use the largest default the kernel picks (1048576) to keep two live
++// descriptors from landing in the same slot. The kernel still enforces the real limit: ENOSPC reports
++// "inotify.watch.limit" as before. Unused slots cost no memory until touched.
++#define ANDROID_DEFAULT_WATCH_COUNT 1048576
++#endif
+ 
+ #define DEFAULT_SUBDIR_COUNT 5
+ 
+@@ -74,7 +81,12 @@
+ static void read_watch_descriptors_count(void) {
+   FILE* f = fopen(WATCH_COUNT_NAME, "r");
+   if (f == NULL) {
++#ifdef __ANDROID__
++    userlog(LOG_INFO, "can't open %s: %s; using %d", WATCH_COUNT_NAME, strerror(errno), ANDROID_DEFAULT_WATCH_COUNT);
++    watch_count = ANDROID_DEFAULT_WATCH_COUNT;
++#else
+     userlog(LOG_ERR, "can't open %s: %s", WATCH_COUNT_NAME, strerror(errno));
++#endif
+     return;
+   }
+ 

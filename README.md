@@ -7,7 +7,7 @@ Running IntelliJ IDEA's backend natively on Android, with no Linux VM or proot, 
 | Part | State |
 |---|---|
 | `jbr/`: JetBrains Runtime 25 built for Android (bionic), as a Termux package | Works. IntelliJ IDEA 2026.3's remote-dev server runs on it in Termux; JetBrains Client on another machine edits, highlights and completes against it |
-| `backend/`: running IntelliJ on the phone | Manual commands below; start script and a bionic `fsnotifier` to come |
+| `backend/`: running IntelliJ on the phone | Manual commands below. IntelliJ's file watcher built for Android: `backend/fsnotifier/`. Start script to come |
 | `client/`: native Android frontend | Compose Multiplatform client, desktop (JVM) for now: our own connection layer; IntelliJ's Project tree and a read-only editor with the backend's full highlighting, in the Islands Dark look (`client/README.md`). Protocol notes: `docs/split-protocol.md`; look: `docs/intellij-look.md`. Typing and Android packaging are next |
 
 Why a custom JBR: IntelliJ's remote-dev server needs JetBrains Runtime (`com.jetbrains.JBR.isGraphicsUtilsSupported()` must be `true`), and the JBR that ships with IntelliJ is built for glibc, which Android doesn't have.
@@ -26,12 +26,13 @@ jbr/
   scripts/find-unresolved-symbols.sh
   docker/tar-rosetta-wrapper.sh
 backend/checks/                small Java checks used on the phone
+backend/fsnotifier/            IntelliJ's file watcher built for Android: build.sh, our patch, README
 client/src/                    the Compose client: connection/ (TLS, frames, rd wire), session/ (rd models), ui/
 client/spikes/rd-on-art/       checks that rd and the protocol models run on Android ART
 client/spikes/session-capture/ summarizes an rd trace recorded from JetBrains Client
 ```
 
-No upstream source is committed. `jbr/scripts/build.sh` fetches termux-packages at a pinned commit into `work/`, and the recipe downloads the JBR source tarball, checked against its SHA-256.
+No upstream source is committed. `jbr/scripts/build.sh` fetches termux-packages at a pinned commit into `work/`, and the recipe downloads the JBR source tarball, checked against its SHA-256. `backend/fsnotifier/build.sh` downloads its source files from `intellij-community` at a pinned commit.
 
 ## Build the JBR package
 
@@ -70,7 +71,7 @@ ssh -p 8022 -N -L 127.0.0.1:5990:127.0.0.1:5990 <phone-address>
 
 ## Known limitations
 
-- No native file watcher yet (`Native file watcher is disabled`): IntelliJ's `fsnotifier` is a glibc binary, so changes are found by periodic rescans.
+- IntelliJ's own `fsnotifier` gives up on Android (`File watcher gave up to operate`), so changes are found by periodic rescans. Use the Android build from `backend/fsnotifier/` instead (see its README). Projects in shared storage are rescanned either way: it's a FUSE mount, which `fsnotifier` doesn't watch.
 - The backend needs about 2.5 GB of RAM.
 - A JDK for projects must be added by its real path, e.g. `/data/data/com.termux/files/usr/lib/jvm/java-21-openjdk`.
 - Projects in shared storage (`~/storage/shared`, `/storage/emulated/0`) and on SD cards can be opened, but prefer Termux's home (`~/…`) for code: shared storage has no symlinks, no executable files (`./gradlew` won't run), case-insensitive file names, and was about 195× slower writing 2,000 small files in a test. For other folders Android won't let Java list on the way down, add them with `-Djdk.nio.fs.unlistableDirectoryHints=/path/one:/path/two` (see `1004` in `jbr/PATCHES.md`).
