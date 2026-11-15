@@ -51,5 +51,7 @@ tasks.test { useJUnitPlatform() }
 compose.desktop {
     application {
         mainClass = "intellijandroid.client.MainKt"
+        // Fonts and icons are read from the same JetBrains Client install as the protocol jars.
+        jvmArgs("-Djetbrains.client.lib=$jetbrainsClientLib")
     }
 }

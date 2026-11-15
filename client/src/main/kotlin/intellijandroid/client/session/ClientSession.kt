@@ -2,12 +2,15 @@ package intellijandroid.client.session
 
 import com.intellij.platform.split.protocol.DefaultSplitMarshallersProvider
 import com.jetbrains.codeWithMe.model.RdFindFileParams
+import com.jetbrains.codeWithMe.model.RdProjectViewAsyncPane
+import com.jetbrains.codeWithMe.model.RdProjectViewItem
 import com.jetbrains.codeWithMe.model.SyntaxHighlighterModel
+import com.jetbrains.codeWithMe.model.VfsModel
 import com.jetbrains.codeWithMe.model.editorTabsModel
+import com.jetbrains.codeWithMe.model.projectViewModel
 import com.jetbrains.codeWithMe.model.vfsModel
+import com.jetbrains.ide.model.highlighterRegistration.ColorsSchemeModel
 import com.jetbrains.ide.model.highlighterRegistration.DefaultRegistryModel
-import com.jetbrains.ide.model.highlighterRegistration.IdeaTextAttributesKey
-import com.jetbrains.ide.model.highlighterRegistration.TextAttributesKeyModel
 import com.jetbrains.ide.model.highlighterRegistration.highlighterRegistrationHostModel
 import com.jetbrains.rd.framework.IMarshaller
 import com.jetbrains.rd.framework.IProtocol
@@ -17,26 +20,38 @@ import com.jetbrains.rd.framework.MarshallersProvider
 import com.jetbrains.rd.framework.Protocol
 import com.jetbrains.rd.framework.RdId
 import com.jetbrains.rd.framework.Serializers
-import com.jetbrains.rd.ide.model.AbstractColor
 import com.jetbrains.rd.ide.model.BasicIdeRootMarshallersProvider
+import com.jetbrains.rd.ide.model.DeferredIconModel
 import com.jetbrains.rd.ide.model.FailedRequestComposite
+import com.jetbrains.rd.ide.model.FileEditorManagerEventModel
+import com.jetbrains.rd.ide.model.OriginKind
+import com.jetbrains.rd.ide.model.RdFileEditorCompositeId
+import com.jetbrains.rd.ide.model.RdFileEditorId
+import com.jetbrains.rd.ide.model.SuccessfulRequestComposite
 import com.jetbrains.rd.ide.model.HighlighterElement
+import com.jetbrains.rd.ide.model.IconModel
+import com.jetbrains.rd.ide.model.ImageIconModel
+import com.jetbrains.rd.ide.model.IndentGuideHighlighterModel
 import com.jetbrains.rd.ide.model.MarkupDocumentExtension
 import com.jetbrains.rd.ide.model.MarkupTextControlExtension
 import com.jetbrains.rd.ide.model.RdDocumentId
+import com.jetbrains.rd.ide.model.RdDocumentIdWithFileId
+import com.jetbrains.rd.ide.model.RdFileIdNew
 import com.jetbrains.rd.ide.model.RdMarkupKey
+import com.jetbrains.rd.ide.model.RdMarkupModel
 import com.jetbrains.rd.ide.model.RdProjectId
 import com.jetbrains.rd.ide.model.RdResetDocumentChange
 import com.jetbrains.rd.ide.model.RequestCompositeQuery
-import com.jetbrains.rd.ide.model.RgbColor
-import com.jetbrains.rd.ide.model.RgbaColor
+import com.jetbrains.rd.ide.model.RowIconModel
 import com.jetbrains.rd.ide.model.Solution
+import com.jetbrains.rd.ide.model.VisibleRange
 import com.jetbrains.rd.ide.model.documentsOperationModel
 import com.jetbrains.rd.ide.model.fileEditorsModel
 import com.jetbrains.rd.ide.model.requestResponseModel
 import com.jetbrains.rd.ide.model.solutionModel
 import com.jetbrains.rd.util.lifetime.Lifetime
 import com.jetbrains.rd.util.lifetime.LifetimeDefinition
+import com.jetbrains.rd.util.reactive.IScheduler
 import com.jetbrains.rd.util.threading.SingleThreadScheduler
 import intellijandroid.client.connection.ClientCertificate
 import intellijandroid.client.connection.Connection
@@ -49,34 +64,33 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import kotlin.concurrent.thread
 
-/** One highlighted range of the open file; [argb] is null when the color scheme has no foreground for it. */
-data class Highlight(val id: Long, val start: Int, val end: Int, val argb: Long?)
-
-data class OpenFile(val path: String, val text: String, val highlights: List<Highlight>)
-
-data class SessionState(
-    val log: List<String> = emptyList(),
-    val file: OpenFile? = null,
-    val failure: String? = null,
-)
-
 /**
- * Connects to a backend and opens one file, creating only the rd models the editor needs
- * (docs/split-protocol.md, "What a first client has to do, from this recording"). Plain JVM + rd: no UI types here,
- * so the same class can back an Android screen.
+ * Connects to a backend and keeps the Project tree and the open editors in a [StateFlow], creating only the rd models
+ * those need (docs/split-protocol.md, "Our own client"). Plain JVM + rd: no UI types here, so the same class can back an
+ * Android screen. All rd model access happens on the rd scheduler thread; UI actions are queued onto it.
  */
-class ClientSession(private val link: JoinLink, private val filePath: String) {
+class ClientSession(private val link: JoinLink, private val initialFile: String?) {
     private val lifetimeDefinition = LifetimeDefinition()
     private val lifetime: Lifetime = lifetimeDefinition
     private val mutableState = MutableStateFlow(SessionState())
     val state: StateFlow<SessionState> = mutableState
 
+    @Volatile
+    private var scheduler: IScheduler? = null
+
     // Touched only on the rd scheduler thread.
-    private val texts = mutableMapOf<RdDocumentId, String>()
-    private val highlights = mutableMapOf<Long, Highlight>()
-    private val foregroundByKey = mutableMapOf<String, Long>()
-    private var openDocumentId: RdDocumentId? = null
+    private val schemes = mutableMapOf<String, ColorsSchemeModel>()
+    private val documentPaths = mutableMapOf<Int, String>()
+    private val documentTexts = mutableMapOf<RdDocumentId, String>()
+    private val documentHighlights = mutableMapOf<RdDocumentId, MutableMap<String, RawHighlight>>()
+    private val loadedChildren = mutableSetOf<Int>()
+    private val unhandledChangeKinds = mutableSetOf<String>()
     private var projectId: RdProjectId? = null
+    private var solution: Solution? = null
+    private var vfs: VfsModel? = null
+    private var pane: RdProjectViewAsyncPane? = null
+    private val compositeIds = mutableMapOf<String, RdFileEditorCompositeId>()
+    private var selectedEditorId: RdFileEditorId? = null
 
     fun start() {
         thread(name = "client-session-connect", isDaemon = true) {
@@ -86,124 +100,222 @@ class ClientSession(private val link: JoinLink, private val filePath: String) {
 
     fun stop() = lifetimeDefinition.terminate()
 
+    // ---- Actions from the UI (any thread) ----
+
+    /** Expands or collapses a tree node; the first expansion asks the backend for the children. */
+    fun toggle(nodeId: Int) = onRd {
+        val tree = mutableState.value.tree
+        if (nodeId in tree.expanded) {
+            mutableState.update { it.copy(tree = it.tree.copy(expanded = it.tree.expanded - nodeId)) }
+        } else {
+            expand(nodeId)
+        }
+    }
+
+    fun select(nodeId: Int) = onRd {
+        mutableState.update { it.copy(tree = it.tree.copy(selected = nodeId)) }
+        pane?.selection?.set(nodeId)
+    }
+
+    /** Opens a file of the backend in an editor tab, or switches to its tab if it is already open. */
+    fun open(path: String) = onRd {
+        if (mutableState.value.editors.any { it.path == path }) {
+            showEditor(path)
+        } else {
+            openFile(path)
+        }
+    }
+
+    fun selectEditor(path: String) = onRd { showEditor(path) }
+
+    // ---- Connection and models ----
+
     private fun connect() {
         val certificate = ClientCertificate.create(link, System.getProperty("user.name") ?: "android")
         val connection = Connection.open(link, certificate, ::log)
         val wire = SplitWire(connection) { failure -> fail(failure ?: IllegalStateException("Connection closed")) }
         lifetime.onTermination { wire.close() }
-        val scheduler = SingleThreadScheduler(lifetime, "rd")
-        val protocol = Protocol("ThinClient", Serializers(ProtocolMarshallers), Identities(IdKind.Client), scheduler, wire, lifetime)
+        val rdScheduler = SingleThreadScheduler(lifetime, "rd")
+        val protocol = Protocol("ThinClient", Serializers(ProtocolMarshallers), Identities(IdKind.Client), rdScheduler, wire, lifetime)
         wire.start()
-        scheduler.queue {
+        scheduler = rdScheduler
+        rdScheduler.queue {
             createModels(protocol)
             log("rd protocol up, models created")
         }
     }
 
+    private fun onRd(action: () -> Unit) {
+        val rdScheduler = scheduler ?: return log("Not connected yet")
+        rdScheduler.queue { runCatching(action).onFailure(::fail) }
+    }
+
     private fun createModels(protocol: IProtocol) {
-        val highlighterHost = protocol.highlighterRegistrationHostModel
         val registry = DefaultRegistryModel()
-        highlighterHost.registry.set(registry)
-        // The backend sends every installed scheme (Default, Darcula, Light, …); the client picks one.
+        protocol.highlighterRegistrationHostModel.registry.set(registry)
+        // The backend sends every installed scheme (Default, Darcula, Islands Dark, …), each with only its own entries.
         registry.colorsScheme.advise(lifetime) { scheme ->
-            if (scheme.name != EDITOR_SCHEME) return@advise
-            foregroundByKey.clear()
-            scheme.attributes.forEach { entry -> entry.attributes?.foregroundColor?.toArgb()?.let { foregroundByKey[entry.textAttributesKey.externalName] = it } }
-            log("Color scheme ${scheme.name}: ${foregroundByKey.size} foreground colors")
-            publishFile()
+            schemes[scheme.name] = scheme
+            val resolved = EditorScheme.resolve(EDITOR_SCHEME, schemes) ?: return@advise
+            if (mutableState.value.scheme == null) log("Color scheme ${resolved.name} ready")
+            mutableState.update { it.copy(scheme = resolved) }
+            documentTexts.keys.forEach(::publishDocument)
         }
 
         val documentsModel = protocol.documentsOperationModel
         documentsModel.requestResponseModel.backendPatches.advise(lifetime) { patchWithMetadata ->
             for (change in patchWithMetadata.patch.changes) {
                 if (change is RdResetDocumentChange) {
-                    texts[change.documentId] = change.text
-                    log("Document text: ${change.text.length} characters")
-                } else {
+                    documentTexts[change.documentId] = change.text
+                    publishDocument(change.documentId)
+                } else if (unhandledChangeKinds.add(change::class.simpleName.orEmpty())) {
                     log("Not handled yet: ${change::class.simpleName}")
                 }
             }
-            publishFile()
         }
         documentsModel.documents.view(lifetime) { documentLifetime, documentId, document ->
-            log("Document opened: $documentId")
             // Like JetBrains Client: the client adds the document's markup models, one without a project and one per
-            // project; the backend fills the per-project one with daemon results (errors, warnings).
+            // project. The backend fills the per-project one with code analysis results (errors, warnings, unused).
             document.extensions.filterIsInstance<MarkupDocumentExtension>().firstOrNull()?.markups?.let { markups ->
                 markups[RdMarkupKey(null)] = MarkupExtensions.documentMarkup()
-                projectId?.let { markups[RdMarkupKey(it)] = MarkupExtensions.documentMarkup() }
+                projectId?.let { id ->
+                    val projectMarkup = MarkupExtensions.documentMarkup()
+                    markups[RdMarkupKey(id)] = projectMarkup
+                    attachMarkup(documentLifetime, documentId, projectMarkup, "document")
+                }
             }
             document.textControls.view(documentLifetime) { controlLifetime, _, control ->
-                openDocumentId = documentId
-                log("Editor opened for $documentId")
                 val markupExtension = control.extensions.filterIsInstance<MarkupTextControlExtension>().firstOrNull()
                     ?: return@view log("Editor has no markup extension; no highlighting")
-                // The client creates the editor's markup model; the backend then fills it with highlighters.
+                // The client creates the editor's markup model; the backend then fills it with syntax highlighters.
                 val markup = MarkupExtensions.editorMarkup()
                 markupExtension.markup.set(markup)
-                markup.highlightersAdded.advise(controlLifetime) { list -> list.elements.forEach(::addHighlight); publishFile() }
-                markup.highlightersUpdated.advise(controlLifetime) { list -> list.elements.forEach(::addHighlight); publishFile() }
-                markup.highlightersRemoved.advise(controlLifetime) { removed -> removed.elements.forEach { id -> highlights.remove(id) }; publishFile() }
-                markup.highlightersCleared.advise(controlLifetime) { highlights.clear(); publishFile() }
+                attachMarkup(controlLifetime, documentId, markup, "editor")
+                // The backend runs code analysis (unused, method declarations, fields, errors) only for visible
+                // editors, and for their visible range. ponytail: reports the whole document as visible.
+                control.visibleChangedFromFrontend.fire(true)
+                control.focusChangedFromFrontend.fire(true)
+                control.visibleRange.set(VisibleRange(0, documentTexts[documentId]?.length ?: Int.MAX_VALUE, emptyList()))
+            }
+            documentLifetime.onTermination {
+                documentTexts.remove(documentId)
+                documentHighlights.remove(documentId)
+                val path = pathOf(documentId)
+                mutableState.update { state -> state.copy(editors = state.editors.filterNot { it.path == path }) }
             }
         }
 
-        val vfs = protocol.vfsModel
-        protocol.solutionModel.solutions.view(lifetime) { solutionLifetime, _, solution ->
-            log("Project ${solution.projectId.value} added")
-            projectId = solution.projectId
-            solution.solutionLifecycle.readyForExtsRegistration.set(true)
-            solution.editorTabsModel
-            solution.isLoaded.advise(solutionLifetime) { loaded -> if (loaded) openFile(solutionLifetime, solution, vfs) }
+        vfs = protocol.vfsModel
+        protocol.solutionModel.solutions.view(lifetime) { solutionLifetime, _, newSolution ->
+            log("Project ${newSolution.projectId.value} added")
+            projectId = newSolution.projectId
+            solution = newSolution
+            newSolution.solutionLifecycle.readyForExtsRegistration.set(true)
+            newSolution.editorTabsModel
+            // The backend lists each open file's editor here; the client marks the one it shows as visible.
+            newSolution.fileEditorsModel.backendDeferredComposites.view(solutionLifetime) { compositeLifetime, compositeId, deferred ->
+                deferred.model.advise(compositeLifetime) { composite -> composite.visible.set(compositeId == selectedEditorId?.compositeId) }
+            }
+            createProjectView(solutionLifetime, newSolution)
+            newSolution.isLoaded.advise(solutionLifetime) { loaded -> if (loaded && initialFile != null) openFile(initialFile) }
         }
     }
 
-    private fun openFile(solutionLifetime: Lifetime, solution: Solution, vfs: com.jetbrains.codeWithMe.model.VfsModel) {
-        log("Project loaded; looking up $filePath")
-        vfs.findFile.start(solutionLifetime, RdFindFileParams(null, filePath, false, false)).result.advise(solutionLifetime) { found ->
-            val snapshot = found.unwrap() ?: return@advise fail(IllegalStateException("Backend has no file $filePath"))
-            log("File id ${snapshot.id}")
-            val query = RequestCompositeQuery(snapshot.id, "file://$filePath")
-            solution.fileEditorsModel.requestComposite.start(solutionLifetime, query).result.advise(solutionLifetime) { response ->
-                val composite = response.unwrap()
-                if (composite is FailedRequestComposite) fail(IllegalStateException("Backend could not open $filePath: $composite"))
-                else log("Editor requested: $composite")
+    private fun createProjectView(solutionLifetime: Lifetime, solution: Solution) {
+        val projectView = solution.projectViewModel
+        projectView.panes.view(solutionLifetime) { paneLifetime, _, candidate ->
+            // "ProjectPane" is the Project view; others are Packages, Project Files, Scopes, ….
+            if (candidate !is RdProjectViewAsyncPane || candidate.id != PROJECT_PANE) return@view
+            pane = candidate
+            projectView.currentPane.set(PROJECT_PANE)
+            candidate.items.view(paneLifetime) { itemLifetime, id, item ->
+                val node = item.toNode(id)
+                mutableState.update { it.copy(projectName = it.projectName ?: node.takeIf { node.parentId == null }?.fragments?.firstOrNull()?.text, tree = it.tree.copy(nodes = it.tree.nodes + (id to node))) }
+                // IntelliJ opens with the project root expanded.
+                if (node.parentId == null && node.hasChildren && node.isDirectory && mutableState.value.tree.expanded.isEmpty()) expand(id)
+                itemLifetime.onTermination { mutableState.update { it.copy(tree = it.tree.copy(nodes = it.tree.nodes - id)) } }
             }
         }
     }
 
-    private fun addHighlight(element: HighlighterElement) {
-        val highlighter = element.highlighter
-        val keys = (highlighter as? SyntaxHighlighterModel)?.textAttributesKeys ?: listOfNotNull(highlighter.textAttributesKey)
-        val argb = keys.firstNotNullOfOrNull(::foregroundOf)
-        highlights[highlighter.id] = Highlight(highlighter.id, highlighter.start, highlighter.end, argb)
+    private fun expand(nodeId: Int) {
+        val currentPane = pane ?: return
+        mutableState.update { it.copy(tree = it.tree.copy(expanded = it.tree.expanded + nodeId)) }
+        // The backend adds the children to `items` (with parentId = nodeId) before it answers.
+        if (loadedChildren.add(nodeId)) currentPane.expand.start(lifetime, nodeId)
     }
 
-    /** Looks the key up in the scheme, then its fallbacks: `JAVA_KEYWORD` → `DEFAULT_KEYWORD`. */
-    private fun foregroundOf(key: TextAttributesKeyModel): Long? {
-        var current: TextAttributesKeyModel? = key
-        while (current != null) {
-            foregroundByKey[current.externalName]?.let { return it }
-            current = (current as? IdeaTextAttributesKey)?.fallback
+    private fun openFile(path: String) {
+        val currentSolution = solution ?: return log("No project yet; cannot open $path")
+        val fileSystem = vfs ?: return
+        fileSystem.findFile.start(lifetime, RdFindFileParams(null, path, false, false)).result.advise(lifetime) { found ->
+            val snapshot = found.unwrap() ?: return@advise log("Backend has no file $path")
+            (snapshot.id as? RdFileIdNew)?.let { documentPaths[it.backendId] = path }
+            mutableState.update { it.copy(selectedEditor = path) }
+            currentSolution.fileEditorsModel.requestComposite.start(lifetime, RequestCompositeQuery(snapshot.id, "file://$path")).result.advise(lifetime) { response ->
+                when (val composite = response.unwrap()) {
+                    is SuccessfulRequestComposite -> { compositeIds[path] = composite.compositeId; showEditor(path) }
+                    is FailedRequestComposite -> log("Backend could not open $path: $composite")
+                    else -> log("Unexpected answer opening $path: $composite")
+                }
+            }
         }
-        return null
     }
 
-    private fun publishFile() {
-        val documentId = openDocumentId ?: return
-        val text = texts[documentId] ?: return
-        val visible = highlights.values.filter { it.start in 0..it.end && it.end <= text.length }.sortedBy { it.start }
-        val previous = mutableState.value.file
-        if (previous == null || previous.highlights.size != visible.size) {
-            log("Showing ${text.length} characters, ${visible.size} highlights (${visible.count { it.argb != null }} with a color)")
+    /**
+     * Makes [path]'s editor the selected one, on both sides. The backend runs code analysis only for the selected,
+     * visible editor (recorded session: `fileEditorsModel.selectionChanged` and `backendDeferredComposites[…].model.visible`).
+     */
+    private fun showEditor(path: String) {
+        mutableState.update { it.copy(selectedEditor = path) }
+        val fileEditors = solution?.fileEditorsModel ?: return
+        val compositeId = compositeIds[path] ?: return
+        val editorId = RdFileEditorId(compositeId, TEXT_EDITOR_PROVIDER, 1)
+        if (editorId == selectedEditorId) return
+        fileEditors.selectionChanged.fire(FileEditorManagerEventModel(OriginKind.Frontend, selectedEditorId, editorId))
+        selectedEditorId = editorId
+        for ((id, deferred) in fileEditors.backendDeferredComposites) deferred.model.valueOrNull?.visible?.set(id == compositeId)
+    }
+
+    private fun attachMarkup(markupLifetime: Lifetime, documentId: RdDocumentId, markup: RdMarkupModel, source: String) {
+        val highlights = documentHighlights.getOrPut(documentId) { mutableMapOf() }
+        markup.highlightersAdded.advise(markupLifetime) { list -> list.elements.forEach { highlights["$source:${it.highlighter.id}"] = it.toRaw() }; publishDocument(documentId) }
+        markup.highlightersUpdated.advise(markupLifetime) { list -> list.elements.forEach { highlights["$source:${it.highlighter.id}"] = it.toRaw() }; publishDocument(documentId) }
+        markup.highlightersRemoved.advise(markupLifetime) { removed -> removed.elements.forEach { highlights.remove("$source:$it") }; publishDocument(documentId) }
+        markup.highlightersCleared.advise(markupLifetime) { highlights.keys.removeAll { it.startsWith("$source:") }; publishDocument(documentId) }
+        markupLifetime.onTermination { highlights.keys.removeAll { it.startsWith("$source:") } }
+    }
+
+    private fun publishDocument(documentId: RdDocumentId) {
+        val text = documentTexts[documentId] ?: return
+        val scheme = mutableState.value.scheme
+        val raw = documentHighlights[documentId]?.values.orEmpty().filter { it.start in 0..it.end && it.end <= text.length }
+        val highlights = if (scheme == null) emptyList() else raw.filter { it.indentLevel == null }
+            .map { Highlight(it.id, it.start, it.end, it.layer, scheme.style(it.keyChains)) }
+            .sortedWith(compareBy({ it.layer }, { it.start }))
+        val guides = raw.mapNotNull { highlight -> highlight.indentLevel?.let { IndentGuide(highlight.start, highlight.end, it) } }
+        val file = EditorFile(pathOf(documentId), text, highlights, guides)
+        // Debug aid: CLIENT_HIGHLIGHT_DUMP=<file> writes every highlight with its keys and covered text.
+        System.getenv("CLIENT_HIGHLIGHT_DUMP")?.let { dump ->
+            java.io.File(dump).writeText(documentHighlights[documentId].orEmpty().entries.sortedBy { it.value.start }.joinToString("\n") { (key, raw) ->
+                "$key ${raw.start}-${raw.end} layer=${raw.layer} guide=${raw.indentLevel} keys=${raw.keyChains.map { it.first() }} '${text.substring(raw.start, raw.end).take(30)}'"
+            })
         }
-        mutableState.update { it.copy(file = OpenFile(filePath, text, visible)) }
+        mutableState.update { state ->
+            val editors = if (state.editors.any { it.path == file.path }) state.editors.map { if (it.path == file.path) file else it } else state.editors + file
+            state.copy(editors = editors, selectedEditor = state.selectedEditor ?: file.path)
+        }
+    }
+
+    private fun pathOf(documentId: RdDocumentId): String {
+        val fileId = (documentId as? RdDocumentIdWithFileId)?.fileId as? RdFileIdNew
+        return fileId?.let { documentPaths[it.backendId] } ?: "document-${fileId?.backendId ?: documentId.hashCode()}"
     }
 
     private fun log(message: String) {
         val line = "${LocalTime.now().format(TIME)} $message"
         println(line)
-        mutableState.update { it.copy(log = it.log + line) }
+        mutableState.update { it.copy(log = (it.log + line).takeLast(200)) }
     }
 
     private fun fail(failure: Throwable) {
@@ -212,14 +324,47 @@ class ClientSession(private val link: JoinLink, private val filePath: String) {
         mutableState.update { it.copy(failure = failure.toString()) }
     }
 
+    /** A highlighter before style resolution, so a scheme change can restyle it. Indent guides carry [indentLevel]. */
+    private class RawHighlight(val id: Long, val start: Int, val end: Int, val layer: Int, val keyChains: List<List<String>>, val indentLevel: Int?)
+
     private companion object {
         val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
-        const val EDITOR_SCHEME = "Darcula"
 
-        fun AbstractColor.toArgb(): Long? = when (this) {
-            is RgbaColor -> (alpha.toLong() shl 24) or (red.toLong() shl 16) or (green.toLong() shl 8) or blue.toLong()
-            is RgbColor -> (0xFFL shl 24) or (red.toLong() shl 16) or (green.toLong() shl 8) or blue.toLong()
-            else -> null
+        /** The user's IntelliJ uses Islands Dark (its theme and its editor scheme). */
+        const val EDITOR_SCHEME = "Islands Dark"
+        const val PROJECT_PANE = "ProjectPane"
+        const val TEXT_EDITOR_PROVIDER = "text-editor"
+
+        fun HighlighterElement.toRaw(): RawHighlight {
+            val model = highlighter
+            val keys = (model as? SyntaxHighlighterModel)?.textAttributesKeys ?: listOfNotNull(model.textAttributesKey)
+            return RawHighlight(model.id, model.start, model.end, model.layer, keys.map(EditorScheme::keyChain), (model as? IndentGuideHighlighterModel)?.indentLevel)
+        }
+
+        fun RdProjectViewItem.toNode(id: Int) = TreeNode(
+            id = id,
+            parentId = parentId,
+            fragments = descriptor.presentation.map { fragment ->
+                TextFragment(fragment.text, fragment.attributes.style, fragment.attributes.fgColor?.let { it.toLong() and 0xFFFFFFFFL })
+            },
+            iconPaths = descriptor.icon?.let(::iconPaths).orEmpty(),
+            hasChildren = descriptor.hasChildren,
+            isDirectory = descriptor.isDirectory,
+            path = descriptor.path,
+            sortKey = descriptor.sortKey,
+        )
+
+        private val unhandledIconTypes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+        fun iconPaths(icon: IconModel): List<String> = when (icon) {
+            is ImageIconModel -> listOf(icon.id.path)
+            is RowIconModel -> icon.subNodes.flatMap(::iconPaths)
+            // Shown until the real icon is computed; the backend sends the final one as an item update.
+            is DeferredIconModel -> icon.baseIcon?.let(::iconPaths).orEmpty()
+            else -> {
+                if (unhandledIconTypes.add(icon::class.simpleName.orEmpty())) println("Icon type not handled yet: $icon")
+                emptyList()
+            }
         }
     }
 }

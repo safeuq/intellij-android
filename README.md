@@ -8,7 +8,7 @@ Running IntelliJ IDEA's backend natively on Android, with no Linux VM or proot, 
 |---|---|
 | `jbr/`: JetBrains Runtime 25 built for Android (bionic), as a Termux package | Works. IntelliJ IDEA 2026.3's remote-dev server runs on it in Termux; JetBrains Client on another machine edits, highlights and completes against it |
 | `backend/`: running IntelliJ on the phone | Manual commands below; start script and a bionic `fsnotifier` to come |
-| `client/`: native Android frontend | Compose Multiplatform client, desktop (JVM) for now: connects to the backend with our own connection layer and shows a file with the backend's syntax highlighting (`client/README.md`). Protocol notes: `docs/split-protocol.md`. Android packaging and editing are next |
+| `client/`: native Android frontend | Compose Multiplatform client, desktop (JVM) for now: our own connection layer; IntelliJ's Project tree and a read-only editor with the backend's full highlighting, in the Islands Dark look (`client/README.md`). Protocol notes: `docs/split-protocol.md`; look: `docs/intellij-look.md`. Typing and Android packaging are next |
 
 Why a custom JBR: IntelliJ's remote-dev server needs JetBrains Runtime (`com.jetbrains.JBR.isGraphicsUtilsSupported()` must be `true`), and the JBR that ships with IntelliJ is built for glibc, which Android doesn't have.
 
@@ -17,6 +17,7 @@ Why a custom JBR: IntelliJ's remote-dev server needs JetBrains Runtime (`com.jet
 ```
 docs/jbr-for-android.md        plan and dated log of the whole build: every failure and fix
 docs/split-protocol.md         how JetBrains Client talks to the backend, and running rd on Android
+docs/intellij-look.md          IntelliJ's Islands Dark editor and Project tree: colors, fonts, metrics, icons
 jbr/
   termux-package/jbr-25/       Termux recipe: build.sh, Termux's patches (00NN), ours (10NN)
   PATCHES.md                   what each patch does and why

@@ -586,6 +586,71 @@ Running the client: see `client/README.md`.
 - The real client's `HighlighterRegistrationHostModel` also gets `demoTextTagsMap`, `colorSettingsPage` and `severities`; ignored.
 - No resend after a reconnect: a dropped connection ends the session.
 
+## Project tree and editor (step 3)
+
+The client now shows IntelliJ's Project tree and a read-only editor with the backend's full highlighting. Tested 2026-11-15 against the Mac backend; recorded from the real client the same day (`protocol.*` trace, 17:49 IST). **Seen** unless marked.
+
+### The Project tree
+
+The tree is `solutions[0].projectViewModel` (the client creates this ext too). Its `panes` list holds one entry per view; the Project view is the `RdProjectViewAsyncPane` with `id = "ProjectPane"`. The client sets `projectViewModel.currentPane = "ProjectPane"`.
+
+Nodes arrive in the pane's `items` map, keyed by an int id:
+
+```
+RECV map `…projectViewModel.panes.[0].items` Add :: key = 1 :: value = RdProjectViewItem (
+  parentId = <null>
+  descriptor = RdProjectViewItemDescriptor (
+    presentation = [ RdColoredFragment ( text = "smoke", attributes = RdSimpleTextAttributes ( fgColor = <null>, style = 1 ) ) ]
+    icon = RowIconModel ( subNodes = [ ImageIconModel ( id = ImageIconModelId ( path = "expui/nodes/module.svg", plugin = "com.intellij" ), width = 16, height = 16 ) ] )
+    hasChildren = true, isDirectory = true, sortKey = -1
+    path = "/…/mac-backend/smoke"
+  ) )
+```
+
+| Part | Meaning |
+|---|---|
+| `parentId` | `null` for top-level nodes (`smoke` -1, `External Libraries` 0, `Scratches and Consoles` 1 = `sortKey`) |
+| `presentation` | label fragments; `style` is `SimpleTextAttributes` bits (1 bold: the project root is bold), `fgColor` an ARGB int or null |
+| `icon` | `ImageIconModel` with a path in `intellij.platform.icons.jar`; `RowIconModel` = several icons; `DeferredIconModel` = a placeholder (`baseIcon`) replaced later by an item update |
+| `expand` | `RdCall<Int, Unit>`: the backend adds the children to `items` (with `parentId` = the node) before it answers, then fires `childrenLoaded(id)` |
+| `selection` | `IProperty<Int>`: the client sets it when the user selects a row |
+| `navigate`, `navigateByPath`, `expandByPath`, `dnd` | not used yet; the client opens files itself (`VfsModel.findFile` + `requestComposite`) |
+
+Collapsing is client-only. IntelliJ shows the project root expanded at start; the real client calls `expand(1)` itself.
+
+### Highlighting in the editor
+
+Two markup models carry highlighters for an open file, and the client creates both (with the extensions in `MarkupExtensions.kt`):
+
+| Markup | Filled with | Example |
+|---|---|---|
+| the editor's (`textControls[…].extensions[MarkupTextControlExtension].markup`) | lexer highlighting, layer 1000 (`SyntaxHighlighterModel`, several keys per range) | `JAVA_KEYWORD`, `JAVA_STRING`, `JAVA_SEMICOLON` |
+| the document's per project (`documents[…].extensions[MarkupDocumentExtension].markups[RdMarkupKey(projectId)]`) | code analysis: semantic colors (layer 3000), unused (4000), warnings, errors (5000), inspections; also indent guides (`IndentGuideHighlighterModel(indentLevel)`) | `METHOD_DECLARATION_ATTRIBUTES` on `main`, `STATIC_FINAL_FIELD_ATTRIBUTES` on `out`, `NOT_USED_ELEMENT_ATTRIBUTES` on `unused`, `DEBUGGER_SUGGESTION_ATTRIBUTES` ("'System.out.println()' call can be replaced with a logpoint") on `println` |
+
+**Code analysis runs only for an editor the backend thinks is selected and visible.** Without the following, the per-project markup stays empty:
+
+| Message (client → backend) | Value |
+|---|---|
+| `fileEditorsModel.selectionChanged` | `FileEditorManagerEventModel(origin = Frontend, oldEditorId = <previous or null>, newEditorId = RdFileEditorId(compositeId, "text-editor", 1))`; `compositeId` is the `SuccessfulRequestComposite` answer of `requestComposite` |
+| `fileEditorsModel.backendDeferredComposites[compositeId].model.$.visible` | `true` (the backend adds the entry; the client sets `visible` on the composite it shows) |
+| `textControls[…].visibleChangedFromFrontend` | `true` |
+| `textControls[…].focusChangedFromFrontend` | `true` |
+| `textControls[…].visibleRange` | `VisibleRange(startOffset, endOffset, collapsedRegions = [])` (the client sends the whole document for now) |
+
+Highlighters carry attribute keys, not colors. The backend sends each color scheme with only its **own** entries: "Islands Dark" has 154 attribute entries and 62 colors; the rest come from its parent "Darcula", sent separately. The client resolves like IntelliJ: for each key, Islands Dark, then Darcula, then the key's fallback (`JAVA_KEYWORD` → `DEFAULT_KEYWORD`), repeat. Scheme colors (`CARET_ROW_COLOR` `#1F2024`, `LINE_NUMBERS_COLOR` `#4B5059`, `SELECTION_BACKGROUND`, `INDENT_GUIDE`, …) resolve the same way. The protocol doesn't say which scheme is a scheme's parent; the client hard-codes Islands Dark → Darcula.
+
+Look and metrics (line height 21 px for JetBrains Mono 12 at spacing 1.2, gutter widths, tree row 24 px, indent 19 px, selection radius 4, Islands panels): [`intellij-look.md`](intellij-look.md).
+
+### Backend on the Mac: JDK
+
+The copied phone project names its JDK `openjdk-21`; the Mac backend's fresh config has no such JDK, so code analysis marks `String` and `System` as `WRONG_REFERENCES_ATTRIBUTES` (red). Registering `openjdk-21` in the backend's `config/options/jdk.table.xml` (home + one `jrt://<home>!/<module>` class root per module) while the backend is stopped fixes it; the JDK is scanned about 6 s after start (28,689 files). A client that connects before that gets the unresolved results and, so far, no re-analysis (**Unknown** why: real IntelliJ re-analyses after indexing). The client's test runs wait for `Number of scanned files` in the backend log before connecting.
+
+### Not done yet
+
+- **Typing.** How edits travel (patches on `requestResponseModel`?) needs a recording of the real client while typing; the screen of the test Mac was locked for that recording.
+- Caret position from the backend (`RdCaretStateSnapshot` patch items are ignored), gutter icons (run markers), folding, breadcrumbs, scroll bars, tab metrics (approximate).
+- Re-analysis after the backend finishes indexing (see above).
+
 ## Plan for the client that follows from this
 
 1. **Reuse:** rd-core, rd-framework (with `UnsafeBuffer` patched), rd-text, and the two generated model jars of the **exact** backend build (class version lowered, resource files kept). Plus kotlin-stdlib and kotlinx-coroutines.
