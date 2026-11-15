@@ -2,6 +2,7 @@ package intellijandroid.client.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,12 +18,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,7 +52,10 @@ fun ClientScreen(state: SessionState, session: ClientSession) {
                 EditorTabs(state, session)
                 val scheme = state.scheme
                 if (selected != null && scheme != null) {
-                    EditorView(selected, scheme, Modifier.fillMaxSize())
+                    val actions = remember(session) {
+                        EditorActions(session::type, session::key, { offset, anchor -> session.moveCaret(offset, anchor) }, session::undo, session::redo)
+                    }
+                    EditorView(selected, scheme, actions, Modifier.fillMaxSize())
                 } else {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         BasicText(
@@ -75,24 +77,22 @@ fun ClientScreen(state: SessionState, session: ClientSession) {
     }
 }
 
-/**
- * Editor tabs: file icon and name, the selected one underlined.
- * ponytail: approximate New UI tab metrics (height 40, 2 px accent underline); measure against IntelliJ when tabs matter.
- */
+/** Editor tabs: file icon and name; the selected one is a rounded "pill" like Islands Dark (measured on the real client). */
 @Composable
 private fun EditorTabs(state: SessionState, session: ClientSession) {
     if (state.editors.isEmpty()) return
     val fonts = LocalClientFonts.current
     val icons = LocalIcons.current
-    Row(Modifier.fillMaxWidth().height(40.dp).padding(start = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(IslandsDark.tabRowHeight).padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         for (editor in state.editors) {
             val selected = editor.path == state.selectedEditor
             val iconPath = state.tree.nodes.values.firstOrNull { it.path == editor.path }?.iconPaths?.firstOrNull() ?: "expui/fileTypes/text.svg"
-            val underline = Color(0xFF3574F0)
+            val pill = RoundedCornerShape(IslandsDark.tabRadius)
             Box(
-                Modifier.fillMaxHeight().clickable { session.selectEditor(editor.path) }
-                    .drawBehind { if (selected) drawRect(underline, Offset(0f, size.height - 2.dp.toPx()), Size(size.width, 2.dp.toPx())) }
-                    .padding(horizontal = 10.dp),
+                Modifier.height(IslandsDark.tabHeight).clip(pill)
+                    .then(if (selected) Modifier.background(IslandsDark.tabSelectedBackground).border(1.dp, IslandsDark.tabSelectedBorder, pill) else Modifier)
+                    .clickable { session.selectEditor(editor.path) }
+                    .padding(horizontal = 8.dp),
             ) {
                 Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
                     icons.painter(iconPath)?.let { Image(it, null, Modifier.size(16.dp)) }

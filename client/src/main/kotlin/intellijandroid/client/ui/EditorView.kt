@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -26,7 +27,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.utf16CodePoint
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
@@ -46,6 +51,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import intellijandroid.client.session.EditorFile
+import intellijandroid.client.session.EditorKey
 import intellijandroid.client.session.EditorScheme
 import intellijandroid.client.session.Highlight
 import intellijandroid.client.session.TextEffect
@@ -67,10 +73,20 @@ private class Lines(val text: String) {
 }
 
 /** Editor geometry in px, following IntelliJ's `EditorView` and `EditorGutterLayout` (New UI). */
-private class EditorMetrics(val lineHeight: Float, val baseline: Float, val caretTop: Float, val caretHeight: Float, val charWidth: Float, val gutterWidth: Float, val lineNumbersRight: Float)
+private class EditorMetrics(val lineHeight: Float, val baseline: Float, val caretTop: Float, val caretHeight: Float, val charWidth: Float, val gutterWidth: Float, val lineNumbersRight: Float, val iconAreaLeft: Float)
+
+/** What the editor asks the session to do; the session applies it locally first and syncs it with the backend. */
+class EditorActions(
+    val type: (Char) -> Unit,
+    val key: (EditorKey) -> Unit,
+    /** New caret offset and selection anchor (equal to the offset when nothing is selected). */
+    val moveCaret: (Int, Int) -> Unit,
+    val undo: () -> Unit,
+    val redo: () -> Unit,
+)
 
 @Composable
-fun EditorView(file: EditorFile, scheme: EditorScheme, modifier: Modifier = Modifier) {
+fun EditorView(file: EditorFile, scheme: EditorScheme, actions: EditorActions, modifier: Modifier = Modifier) {
     val fonts = LocalClientFonts.current
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer(cacheSize = 512)
@@ -86,8 +102,9 @@ fun EditorView(file: EditorFile, scheme: EditorScheme, modifier: Modifier = Modi
             val lineHeight = ceil(fontHeight / density.density * IslandsDark.LINE_SPACING) * density.density
             val extra = ((lineHeight - fontHeight) / density.density / 2).toInt() * density.density
             val lineNumberWidth = max(14.dp.toPx(), ceil(measurer.measure("9".repeat(lines.count.toString().length), lineNumberStyle).size.width.toFloat()))
-            // Gutter, no VCS markers: 4 + 4 + numbers + 4 + icons 17 + 4 + folding 11 + 9.
-            val gutterWidth = 4.dp.toPx() + 4.dp.toPx() + lineNumberWidth + 4.dp.toPx() + 17.dp.toPx() + 4.dp.toPx() + 11.dp.toPx() + 9.dp.toPx()
+            // Gutter as measured on the real client (Islands Dark, no VCS markers): numbers, 4, icons 17, 4,
+            // folding 11, 6. With two-digit line numbers that is 56 px, text starting right after.
+            val gutterWidth = lineNumberWidth + 4.dp.toPx() + 17.dp.toPx() + 4.dp.toPx() + 11.dp.toPx() + 6.dp.toPx()
             EditorMetrics(
                 lineHeight = lineHeight,
                 baseline = sample.firstBaseline + extra,
@@ -95,11 +112,14 @@ fun EditorView(file: EditorFile, scheme: EditorScheme, modifier: Modifier = Modi
                 caretHeight = fontHeight,
                 charWidth = sample.size.width / 100f,
                 gutterWidth = gutterWidth,
-                lineNumbersRight = 8.dp.toPx() + lineNumberWidth,
+                lineNumbersRight = lineNumberWidth,
+                // Icons area (17 px) after the line numbers and their 4 px gap.
+                iconAreaLeft = lineNumberWidth + 4.dp.toPx(),
             )
         }
     }
     val highlightsByLine = remember(file, lines) { bucketByLine(file.highlights, lines) }
+    val gutterIconsByLine = remember(file, lines) { file.gutterIcons.groupBy { lines.lineOf(it.offset) } }
     val guidesByLine = remember(file, lines) {
         val result = HashMap<Int, MutableList<Int>>()
         for (guide in file.indentGuides) {
@@ -108,13 +128,20 @@ fun EditorView(file: EditorFile, scheme: EditorScheme, modifier: Modifier = Modi
         result
     }
 
-    var caret by remember(file.path) { mutableIntStateOf(0) }
-    var anchor by remember(file.path) { mutableStateOf<Int?>(null) }
+    // Caret and selection belong to the session (they are synced with the backend); only the column to keep when
+    // moving up and down, and the drag start, live here.
+    val caret = file.caret
+    val anchor = if (file.selectionStart == file.selectionEnd) null else if (file.selectionStart == caret) file.selectionEnd else file.selectionStart
     var preferredColumn by remember(file.path) { mutableIntStateOf(0) }
+    var dragAnchor by remember(file.path) { mutableIntStateOf(0) }
     var focused by remember { mutableStateOf(false) }
     var caretOn by remember { mutableStateOf(true) }
     val focusRequester = remember { FocusRequester() }
     val listState = rememberLazyListState()
+    // The pointer handlers below live across recompositions; they must read the current text, not the first one.
+    val currentLines by rememberUpdatedState(lines)
+    val currentFile by rememberUpdatedState(file)
+
 
     LaunchedEffect(caret, focused) {
         caretOn = true
@@ -122,34 +149,63 @@ fun EditorView(file: EditorFile, scheme: EditorScheme, modifier: Modifier = Modi
     }
 
     fun moveTo(offset: Int, extend: Boolean, keepColumn: Boolean = false) {
-        val target = offset.coerceIn(0, file.text.length)
-        anchor = if (extend) (anchor ?: caret) else null
-        caret = target
-        if (!keepColumn) preferredColumn = target - lines.starts[lines.lineOf(target)]
+        val now = currentFile
+        val target = offset.coerceIn(0, now.text.length)
+        val currentAnchor = if (now.selectionStart == now.selectionEnd) null else if (now.selectionStart == now.caret) now.selectionEnd else now.selectionStart
+        actions.moveCaret(target, if (extend) (currentAnchor ?: now.caret) else target)
+        if (!keepColumn) preferredColumn = target - currentLines.starts[currentLines.lineOf(target)]
     }
 
-    fun onKey(key: Key, shift: Boolean, meta: Boolean): Boolean {
+    /** Typed characters. ponytail: key events, no IME; Android needs an InputConnection for its soft keyboard. */
+    fun typeCharacter(event: KeyEvent): Boolean {
+        val character = event.utf16CodePoint
+        // Arrow and function keys report private-use or non-character codes (e.g. U+FFFF); those aren't text.
+        val isText = !Character.isISOControl(character) && character != 0xFFFF && Character.getType(character) != Character.PRIVATE_USE.toInt()
+        if (!file.editable || event.isMetaPressed || event.isCtrlPressed || !isText) return false
+        actions.type(character.toChar())
+        return true
+    }
+
+    fun onKey(event: KeyEvent): Boolean {
+        val key = event.key
+        val shift = event.isShiftPressed
+        val meta = event.isMetaPressed
         val line = lines.lineOf(caret)
+        if (file.editable) {
+            when {
+                key == Key.Enter -> { actions.key(EditorKey.ENTER); return true }
+                key == Key.Backspace -> { actions.key(EditorKey.BACKSPACE); return true }
+                key == Key.Delete -> { actions.key(EditorKey.DELETE); return true }
+                meta && key == Key.Z -> { if (shift) actions.redo() else actions.undo(); return true }
+            }
+        }
         fun lineOffset(targetLine: Int) = lines.starts[targetLine] + minOf(preferredColumn, lines.end(targetLine) - lines.starts[targetLine])
         when (key) {
             Key.DirectionLeft -> moveTo(if (meta) lines.starts[line] else caret - 1, shift)
             Key.DirectionRight -> moveTo(if (meta) lines.end(line) else caret + 1, shift)
             Key.DirectionUp -> if (line > 0) moveTo(lineOffset(line - 1), shift, keepColumn = true) else moveTo(0, shift)
             Key.DirectionDown -> if (line + 1 < lines.count) moveTo(lineOffset(line + 1), shift, keepColumn = true) else moveTo(file.text.length, shift)
-            Key.MoveHome -> moveTo(lines.starts[line], shift)
+            Key.MoveHome -> {
+                // IntelliJ's smart Home: the first non-space character, then column 0 when already there.
+                val start = lines.starts[line]
+                val firstNonSpace = (start until lines.end(line)).firstOrNull { !file.text[it].isWhitespace() } ?: start
+                moveTo(if (file.caret == firstNonSpace) start else firstNonSpace, shift)
+            }
             Key.MoveEnd -> moveTo(lines.end(line), shift)
-            Key.A -> if (meta) { anchor = 0; caret = file.text.length } else return false
-            else -> return false
+            Key.A -> if (meta) actions.moveCaret(file.text.length, 0) else return typeCharacter(event)
+            else -> return typeCharacter(event)
         }
         return true
     }
 
     fun offsetAt(position: Offset): Int {
-        val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { position.y >= it.offset && position.y < it.offset + it.size }
-            ?: return if (position.y < 0) 0 else file.text.length
-        val line = item.index
+        val visible = listState.layoutInfo.visibleItemsInfo
+        val item = visible.firstOrNull { position.y >= it.offset && position.y < it.offset + it.size }
+        val line = item?.index ?: if (position.y < 0) 0 else currentLines.count - 1
         val column = ((position.x - metrics.gutterWidth) / metrics.charWidth).roundToInt().coerceAtLeast(0)
-        return minOf(lines.starts[line] + column, lines.end(line))
+        val offset = minOf(currentLines.starts[line] + column, currentLines.end(line))
+        if (System.getenv("CLIENT_EDIT_DEBUG") != null) println("[edit] pointer $position -> line ${line + 1} column $column offset $offset (first visible item offset ${visible.firstOrNull()?.offset})")
+        return offset
     }
 
     LazyColumn(
@@ -159,13 +215,13 @@ fun EditorView(file: EditorFile, scheme: EditorScheme, modifier: Modifier = Modi
             .focusRequester(focusRequester)
             .onFocusChanged { focused = it.hasFocus }
             .focusable()
-            .onPreviewKeyEvent { event -> event.type == KeyEventType.KeyDown && onKey(event.key, event.isShiftPressed, event.isMetaPressed) }
+            .onPreviewKeyEvent { event -> event.type == KeyEventType.KeyDown && onKey(event) }
             .pointerInput(file.path, metrics) {
                 detectTapGestures(onPress = { position -> focusRequester.requestFocus(); moveTo(offsetAt(position), extend = false) })
             }
             .pointerInput(file.path, metrics) {
-                detectDragGestures(onDragStart = { position -> moveTo(offsetAt(position), extend = false); anchor = caret }) { change, _ ->
-                    caret = offsetAt(change.position)
+                detectDragGestures(onDragStart = { position -> dragAnchor = offsetAt(position); moveTo(dragAnchor, extend = false) }) { change, _ ->
+                    actions.moveCaret(offsetAt(change.position), dragAnchor)
                 }
             },
     ) {
@@ -176,6 +232,7 @@ fun EditorView(file: EditorFile, scheme: EditorScheme, modifier: Modifier = Modi
                 lines = lines,
                 highlights = highlightsByLine[line].orEmpty(),
                 guides = guidesByLine[line].orEmpty(),
+                gutterIconPath = gutterIconsByLine[line]?.firstOrNull()?.iconPaths?.firstOrNull(),
                 scheme = scheme,
                 metrics = metrics,
                 measurer = measurer,
@@ -195,6 +252,7 @@ private fun EditorLine(
     lines: Lines,
     highlights: List<Highlight>,
     guides: List<Int>,
+    gutterIconPath: String?,
     scheme: EditorScheme,
     metrics: EditorMetrics,
     measurer: TextMeasurer,
@@ -211,6 +269,7 @@ private fun EditorLine(
     val layout = remember(annotated, textStyle) { measurer.measure(annotated, textStyle, softWrap = false) }
     val lineNumber = remember(line, lineNumberStyle) { measurer.measure(AnnotatedString((line + 1).toString()), lineNumberStyle) }
     val height = with(density) { metrics.lineHeight.toDp() }
+    val gutterIcon = gutterIconPath?.let(LocalIcons.current::painter)
 
     Canvas(Modifier.fillMaxWidth().height(height)) {
         val isCaretLine = caretColumn != null
@@ -246,6 +305,13 @@ private fun EditorLine(
         // Gutter: line number right-aligned on the editor's baseline, brighter on the caret line.
         val numberColor = scheme.color(if (isCaretLine) "LINE_NUMBER_ON_CARET_ROW_COLOR" else "LINE_NUMBERS_COLOR")?.let { Color(it) } ?: Color.Gray
         drawText(lineNumber, color = numberColor, topLeft = Offset(metrics.lineNumbersRight - lineNumber.size.width, metrics.baseline - lineNumber.firstBaseline))
+        // Gutter icon (e.g. the green run marker), 14 px, centered in the 17 px icons area.
+        if (gutterIcon != null) {
+            val iconSize = 14.dp.toPx()
+            translate(metrics.iconAreaLeft + (17.dp.toPx() - iconSize) / 2, (size.height - iconSize) / 2) {
+                with(gutterIcon) { draw(Size(iconSize, iconSize)) }
+            }
+        }
 
         drawText(layout, topLeft = Offset(textLeft, metrics.baseline - layout.firstBaseline))
         for (highlight in highlights) drawEffect(highlight, lineStart, lineText.length, ::x, metrics)

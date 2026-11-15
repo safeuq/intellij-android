@@ -27,14 +27,19 @@ object Snapshots {
         thread(name = "client-snapshots", isDaemon = true) {
             while (true) {
                 Thread.sleep(3_000)
-                val scene = ImageComposeScene((WIDTH * SCALE).toInt(), (HEIGHT * SCALE).toInt(), density) {
-                    CompositionLocalProvider(LocalClientFonts provides fonts, LocalIcons provides icons) {
-                        ClientScreen(session.state.value, session)
+                // Render on the UI thread: Compose state must not be read from two threads at once (the window renders there).
+                var png: org.jetbrains.skia.Data? = null
+                javax.swing.SwingUtilities.invokeAndWait {
+                    val scene = ImageComposeScene((WIDTH * SCALE).toInt(), (HEIGHT * SCALE).toInt(), density) {
+                        CompositionLocalProvider(LocalClientFonts provides fonts, LocalIcons provides icons) {
+                            ClientScreen(session.state.value, session)
+                        }
                     }
+                    png = try { scene.render().encodeToData(EncodedImageFormat.PNG) } finally { scene.close() }
                 }
-                val png = try { scene.render().encodeToData(EncodedImageFormat.PNG) } finally { scene.close() } ?: continue
+                val encoded = png ?: continue
                 val temporary = File(target.path + ".tmp")
-                temporary.writeBytes(png.bytes)
+                temporary.writeBytes(encoded.bytes)
                 temporary.renameTo(target)
             }
         }

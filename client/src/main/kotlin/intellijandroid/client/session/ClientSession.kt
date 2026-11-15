@@ -21,8 +21,10 @@ import com.jetbrains.rd.framework.Protocol
 import com.jetbrains.rd.framework.RdId
 import com.jetbrains.rd.framework.Serializers
 import com.jetbrains.rd.ide.model.BasicIdeRootMarshallersProvider
+import com.jetbrains.rd.ide.model.CompositionIconModel
 import com.jetbrains.rd.ide.model.DeferredIconModel
 import com.jetbrains.rd.ide.model.FailedRequestComposite
+import com.jetbrains.rd.ide.model.GutterMarkHighlighterModel
 import com.jetbrains.rd.ide.model.FileEditorManagerEventModel
 import com.jetbrains.rd.ide.model.OriginKind
 import com.jetbrains.rd.ide.model.RdFileEditorCompositeId
@@ -40,7 +42,16 @@ import com.jetbrains.rd.ide.model.RdFileIdNew
 import com.jetbrains.rd.ide.model.RdMarkupKey
 import com.jetbrains.rd.ide.model.RdMarkupModel
 import com.jetbrains.rd.ide.model.RdProjectId
+import com.jetbrains.rd.ide.model.RdDocumentChangeBase
+import com.jetbrains.rd.ide.model.RdPatch
+import com.jetbrains.rd.ide.model.RdRequest
+import com.jetbrains.rd.ide.model.RdRequestHolder
+import com.jetbrains.rd.ide.model.RdRequests
 import com.jetbrains.rd.ide.model.RdResetDocumentChange
+import com.jetbrains.rd.ide.model.RdRetryTimestamp
+import com.jetbrains.rd.ide.model.RdSuccessResponse
+import com.jetbrains.rd.ide.model.RequestResponseModel
+import com.jetbrains.rd.ide.model.TextControlId
 import com.jetbrains.rd.ide.model.RequestCompositeQuery
 import com.jetbrains.rd.ide.model.RowIconModel
 import com.jetbrains.rd.ide.model.Solution
@@ -90,6 +101,12 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
     private var vfs: VfsModel? = null
     private var pane: RdProjectViewAsyncPane? = null
     private val compositeIds = mutableMapOf<String, RdFileEditorCompositeId>()
+    private val editSessions = mutableMapOf<RdDocumentId, EditSession>()
+    /** Backend patches for a document that arrived before its editor existed (normally the editor comes first). */
+    private val earlyPatches = mutableMapOf<RdDocumentId, MutableList<RdPatch>>()
+    private val commands = CommandChain()
+    private var requestIds = 0L
+    private var requestResponse: RequestResponseModel? = null
     private var selectedEditorId: RdFileEditorId? = null
 
     fun start() {
@@ -128,6 +145,31 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
 
     fun selectEditor(path: String) = onRd { showEditor(path) }
 
+    // Editing the selected file (docs/split-protocol.md, "Typing"). All local first, then confirmed by the backend.
+
+    fun type(character: Char) = onRd { selectedEditSession()?.type(character) }
+
+    fun key(key: EditorKey) = onRd {
+        val session = selectedEditSession() ?: return@onRd
+        when (key) {
+            EditorKey.ENTER -> session.enter()
+            EditorKey.BACKSPACE -> session.backspace()
+            EditorKey.DELETE -> session.delete()
+        }
+    }
+
+    /** Moves the caret of the selected file; a selection when [anchor] differs from [offset]. */
+    fun moveCaret(offset: Int, anchor: Int = offset) = onRd { selectedEditSession()?.moveCaret(offset, anchor) }
+
+    fun undo() = onRd { selectedEditSession()?.undo(isUndo = true) }
+
+    fun redo() = onRd { selectedEditSession()?.undo(isUndo = false) }
+
+    private fun selectedEditSession(): EditSession? {
+        val path = mutableState.value.selectedEditor ?: return null
+        return editSessions.entries.firstOrNull { pathOf(it.key) == path }?.value
+    }
+
     // ---- Connection and models ----
 
     private fun connect() {
@@ -163,13 +205,26 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
         }
 
         val documentsModel = protocol.documentsOperationModel
-        documentsModel.requestResponseModel.backendPatches.advise(lifetime) { patchWithMetadata ->
-            for (change in patchWithMetadata.patch.changes) {
-                if (change is RdResetDocumentChange) {
-                    documentTexts[change.documentId] = change.text
-                    publishDocument(change.documentId)
-                } else if (unhandledChangeKinds.add(change::class.simpleName.orEmpty())) {
-                    log("Not handled yet: ${change::class.simpleName}")
+        val requestResponseModel = documentsModel.requestResponseModel
+        requestResponse = requestResponseModel
+        requestResponseModel.backendPatches.advise(lifetime) { patchWithMetadata ->
+            val patch = patchWithMetadata.patch
+            val handled = editSessions.values.filter { it.concerns(patch) }
+            handled.forEach { it.backendPatch(patch) }
+            for (change in patch.changes) {
+                val documentId = (change as? RdDocumentChangeBase)?.documentId ?: continue
+                if (editSessions[documentId] == null) {
+                    earlyPatches.getOrPut(documentId) { mutableListOf() } += patch
+                    if (change is RdResetDocumentChange) { documentTexts[documentId] = change.text; publishDocument(documentId) }
+                }
+            }
+        }
+        requestResponseModel.responsesWithTime.advise(lifetime) { responses ->
+            for (response in responses.responses) {
+                val session = editSessions.values.firstOrNull { it.hasPending(response.requestId) } ?: continue
+                when (response) {
+                    is RdSuccessResponse -> session.response(response.requestId, response.patch)
+                    else -> { log("Request ${response.requestId} not applied: $response"); session.retryOrFailure(response.requestId) }
                 }
             }
         }
@@ -184,7 +239,8 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
                     attachMarkup(documentLifetime, documentId, projectMarkup, "document")
                 }
             }
-            document.textControls.view(documentLifetime) { controlLifetime, _, control ->
+            document.textControls.view(documentLifetime) { controlLifetime, controlId, control ->
+                createEditSession(controlLifetime, documentId, controlId)
                 val markupExtension = control.extensions.filterIsInstance<MarkupTextControlExtension>().firstOrNull()
                     ?: return@view log("Editor has no markup extension; no highlighting")
                 // The client creates the editor's markup model; the backend then fills it with syntax highlighters.
@@ -198,6 +254,8 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
                 control.visibleRange.set(VisibleRange(0, documentTexts[documentId]?.length ?: Int.MAX_VALUE, emptyList()))
             }
             documentLifetime.onTermination {
+                editSessions.remove(documentId)
+                earlyPatches.remove(documentId)
                 documentTexts.remove(documentId)
                 documentHighlights.remove(documentId)
                 val path = pathOf(documentId)
@@ -277,6 +335,39 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
         for ((id, deferred) in fileEditors.backendDeferredComposites) deferred.model.valueOrNull?.visible?.set(id == compositeId)
     }
 
+    private fun createEditSession(controlLifetime: Lifetime, documentId: RdDocumentId, controlId: TextControlId) {
+        val identity = EditorIdentity.of(documentId, controlId, compositeIds[pathOf(documentId)]) ?: return log("Cannot edit $controlId: unknown editor id type")
+        val session = EditSession(identity, commands, ::sendRequest) { edit ->
+            edit?.let { shiftHighlights(documentId, it) }
+            publishDocument(documentId)
+        }
+        editSessions[documentId] = session
+        earlyPatches.remove(documentId)?.forEach(session::backendPatch)
+        controlLifetime.onTermination { if (editSessions[documentId] === session) editSessions.remove(documentId) }
+    }
+
+    private fun sendRequest(request: RdRequest): Long {
+        val requestId = ++requestIds
+        val model = requestResponse ?: error("requestResponseModel not ready")
+        // RdRequests.timestamp: wall clock in epoch nanoseconds, like JetBrains Client.
+        val now = java.time.Instant.now()
+        model.requestsWithTime.fire(RdRequests(listOf(RdRequestHolder(requestId, request, RdRetryTimestamp(0, 0), null)), now.epochSecond * 1_000_000_000 + now.nano))
+        return requestId
+    }
+
+    /** Keeps highlighter ranges in place over local edits until the backend sends fresh ones. */
+    private fun shiftHighlights(documentId: RdDocumentId, edit: EditSession.TextEdit) {
+        val highlights = documentHighlights[documentId] ?: return
+        val delta = edit.insertedLength - edit.removedLength
+        val editEnd = edit.offset + edit.removedLength
+        fun moved(position: Int) = when {
+            position >= editEnd -> position + delta
+            position > edit.offset -> edit.offset
+            else -> position
+        }
+        for ((key, highlight) in highlights.entries.toList()) highlights[key] = highlight.copy(start = moved(highlight.start), end = moved(highlight.end))
+    }
+
     private fun attachMarkup(markupLifetime: Lifetime, documentId: RdDocumentId, markup: RdMarkupModel, source: String) {
         val highlights = documentHighlights.getOrPut(documentId) { mutableMapOf() }
         markup.highlightersAdded.advise(markupLifetime) { list -> list.elements.forEach { highlights["$source:${it.highlighter.id}"] = it.toRaw() }; publishDocument(documentId) }
@@ -287,14 +378,21 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
     }
 
     private fun publishDocument(documentId: RdDocumentId) {
-        val text = documentTexts[documentId] ?: return
+        val session = editSessions[documentId]?.takeIf { it.isReady }
+        val text = session?.text ?: documentTexts[documentId] ?: return
+        documentTexts[documentId] = text
         val scheme = mutableState.value.scheme
         val raw = documentHighlights[documentId]?.values.orEmpty().filter { it.start in 0..it.end && it.end <= text.length }
         val highlights = if (scheme == null) emptyList() else raw.filter { it.indentLevel == null }
             .map { Highlight(it.id, it.start, it.end, it.layer, scheme.style(it.keyChains)) }
             .sortedWith(compareBy({ it.layer }, { it.start }))
         val guides = raw.mapNotNull { highlight -> highlight.indentLevel?.let { IndentGuide(highlight.start, highlight.end, it) } }
-        val file = EditorFile(pathOf(documentId), text, highlights, guides)
+        val gutterIcons = raw.filter { it.gutterIconPaths.isNotEmpty() }.sortedBy { it.start }.map { GutterIcon(it.start, it.gutterIconPaths) }
+        val file = EditorFile(
+            pathOf(documentId), text, highlights, guides, gutterIcons,
+            caret = session?.caret ?: 0, selectionStart = session?.selectionStart ?: 0, selectionEnd = session?.selectionEnd ?: 0,
+            editable = session != null,
+        )
         // Debug aid: CLIENT_HIGHLIGHT_DUMP=<file> writes every highlight with its keys and covered text.
         System.getenv("CLIENT_HIGHLIGHT_DUMP")?.let { dump ->
             java.io.File(dump).writeText(documentHighlights[documentId].orEmpty().entries.sortedBy { it.value.start }.joinToString("\n") { (key, raw) ->
@@ -325,7 +423,15 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
     }
 
     /** A highlighter before style resolution, so a scheme change can restyle it. Indent guides carry [indentLevel]. */
-    private class RawHighlight(val id: Long, val start: Int, val end: Int, val layer: Int, val keyChains: List<List<String>>, val indentLevel: Int?)
+    private data class RawHighlight(
+        val id: Long,
+        val start: Int,
+        val end: Int,
+        val layer: Int,
+        val keyChains: List<List<String>>,
+        val indentLevel: Int?,
+        val gutterIconPaths: List<String>,
+    )
 
     private companion object {
         val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
@@ -338,7 +444,8 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
         fun HighlighterElement.toRaw(): RawHighlight {
             val model = highlighter
             val keys = (model as? SyntaxHighlighterModel)?.textAttributesKeys ?: listOfNotNull(model.textAttributesKey)
-            return RawHighlight(model.id, model.start, model.end, model.layer, keys.map(EditorScheme::keyChain), (model as? IndentGuideHighlighterModel)?.indentLevel)
+            val gutterIcon = (model as? GutterMarkHighlighterModel)?.gutterMarkRenderer?.icon?.let(::iconPaths).orEmpty()
+            return RawHighlight(model.id, model.start, model.end, model.layer, keys.map(EditorScheme::keyChain), (model as? IndentGuideHighlighterModel)?.indentLevel, gutterIcon)
         }
 
         fun RdProjectViewItem.toNode(id: Int) = TreeNode(
@@ -359,6 +466,8 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
         fun iconPaths(icon: IconModel): List<String> = when (icon) {
             is ImageIconModel -> listOf(icon.id.path)
             is RowIconModel -> icon.subNodes.flatMap(::iconPaths)
+            // Layered icon (e.g. the module file): the first layer is the base icon.
+            is CompositionIconModel -> icon.subNodes.flatMap(::iconPaths)
             // Shown until the real icon is computed; the backend sends the final one as an item update.
             is DeferredIconModel -> icon.baseIcon?.let(::iconPaths).orEmpty()
             else -> {

@@ -639,7 +639,7 @@ Two markup models carry highlighters for an open file, and the client creates bo
 
 Highlighters carry attribute keys, not colors. The backend sends each color scheme with only its **own** entries: "Islands Dark" has 154 attribute entries and 62 colors; the rest come from its parent "Darcula", sent separately. The client resolves like IntelliJ: for each key, Islands Dark, then Darcula, then the key's fallback (`JAVA_KEYWORD` → `DEFAULT_KEYWORD`), repeat. Scheme colors (`CARET_ROW_COLOR` `#1F2024`, `LINE_NUMBERS_COLOR` `#4B5059`, `SELECTION_BACKGROUND`, `INDENT_GUIDE`, …) resolve the same way. The protocol doesn't say which scheme is a scheme's parent; the client hard-codes Islands Dark → Darcula.
 
-Look and metrics (line height 21 px for JetBrains Mono 12 at spacing 1.2, gutter widths, tree row 24 px, indent 19 px, selection radius 4, Islands panels): [`intellij-look.md`](intellij-look.md).
+Look and metrics (line height 21 px for JetBrains Mono 12 at spacing 1.2, gutter widths, tree row 22 px, indent 19 px, selection radius 4, Islands panels): [`intellij-look.md`](intellij-look.md).
 
 ### Backend on the Mac: JDK
 
@@ -647,9 +647,39 @@ The copied phone project names its JDK `openjdk-21`; the Mac backend's fresh con
 
 ### Not done yet
 
-- **Typing.** How edits travel (patches on `requestResponseModel`?) needs a recording of the real client while typing; the screen of the test Mac was locked for that recording.
-- Caret position from the backend (`RdCaretStateSnapshot` patch items are ignored), gutter icons (run markers), folding, breadcrumbs, scroll bars, tab metrics (approximate).
+- ~~Typing~~, ~~caret position from the backend~~, ~~gutter icons~~: done in [Editing (step 4)](#editing-step-4).
+- Folding, breadcrumbs, scroll bars.
 - Re-analysis after the backend finishes indexing (see above).
+
+## Editing (step 4)
+
+The editor now takes typing, Enter, Backspace, Delete, caret moves, selections (Shift+arrows, mouse drag, Cmd+A), undo and redo. Tested 2026-11-15 against the Mac backend; the real client was recorded typing the same day (`protocol.*` trace). The full message spec is [`edit-protocol.md`](edit-protocol.md); in short:
+
+| Step | Message |
+|---|---|
+| The editor opens | `backendPatches` sends `RdResetDocumentChange(text, v0)` and an `RdCaretStateSnapshot`. Their versions are the starting versions |
+| Type a character | change the text locally, then `RdTypeKeyRequest(char, editorId, patch)` on `requestResponseModel.requestsWithTime` |
+| Enter, Backspace, Delete | `RdCallEditorActionRequest("EditorEnter" / "EditorBackSpace" / "EditorDelete", editorId, patch, timestampSetModel)` |
+| Move the caret or select | `RdApplyPatchRequest` with one `RdCaretStateChange` |
+| After every edit | an empty `RdApplyPatchRequest` command with `isTransparent = true`, as the real client sends |
+| Undo, redo | `RdUndoRedoRequest(fileEditorId, [fileId], undoSizes, redoSizes, isUndo)`, no local change |
+| The answer | `responsesWithTime`: `RdSuccessResponse(patch, requestId)`. Same changes as ours: keep the local text. Different: roll back every pending local edit, apply the backend's patch |
+
+Each patch carries `expectedItemVersions` (the versions before) and `updatedItemVersions` (after):
+
+| Version | Example (260-char `Main.java`, Enter at 210) |
+|---|---|
+| document | `RdDocumentVersion(0, -5446235163934729545)` → `RdDocumentVersion(1, -6257571537734692227)`; the hash folds `offset, moveOffset, oldLength, oldText, newText` into the previous hash (`h * 31 + v`, signed 64-bit) |
+| editor | `RdEditorVersion(caretModelVersion, documentHash, caretHash)`; `caretModelVersion` goes up by 2 per edit and by 1 per caret move; caret at 210 → `caretHash` 122288 |
+| command | `RdCmdItemVersion(RdCmdVersion(-3))`: the id of the previous command; ids count down from -2 |
+
+Gutter icons come in the per-project markup as `GutterMarkHighlighterModel` (the run triangles on lines 3 and 4 of `Main.java`, icon `expui/gutter/run.svg`). Icons can also be `CompositionIconModel(subNodes)`, drawn on top of each other.
+
+### Not done yet
+
+- Smart typing locally (closing brackets, smart backspace): the backend does it and the client follows, so the text jumps once the answer arrives.
+- Multiple carets, folding, IME (needed for Android's soft keyboard), copy and paste.
+- Indent guides: `IndentGuideHighlighterModel` never arrived in the tests.
 
 ## Plan for the client that follows from this
 
@@ -665,7 +695,7 @@ The copied phone project names its JDK `openjdk-21`; the Mac backend's fresh con
 | ~~Does the backend accept an empty `ACCEPTED` from us?~~ | Yes (`Peer made no negotiation offer, skipping`). |
 | ~~Which rd models does the client have to bind first, and in what order?~~ | Answered by [A recorded session](#a-recorded-session). |
 | ~~Does the host give a client an editor if it creates only the editor's models (no Fleet RPC, no Rhizome DB)?~~ | Yes: [Our own client](#our-own-client-step-2). |
-| How does typing travel: patches on `requestResponseModel`, or something else? | A capture that edits text. |
+| ~~How does typing travel?~~ | Answered in [Editing (step 4)](#editing-step-4): requests with patches on `requestResponseModel`. |
 | What does Lux traffic look like when a dialog opens? | A capture that opens Settings. |
 | rd message context bytes | rd library source (JetBrains/rd, public), or capture. Not needed while we reuse the library. |
 | Is the byte-by-byte `copyMemory` shim fast enough? | Measure once real traffic flows. |

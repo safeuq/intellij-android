@@ -1,6 +1,6 @@
 # Compose client
 
-A native client for IntelliJ's split mode (remote development), written with Compose Multiplatform. For now it runs on the desktop JVM. It connects to a backend and shows IntelliJ's Project tree and a read-only editor with the backend's highlighting, in IntelliJ's Islands Dark look ([`docs/intellij-look.md`](../docs/intellij-look.md)). How the protocol works: [`docs/split-protocol.md`](../docs/split-protocol.md), sections "Connection setup" and "Our own client (step 2)".
+A native client for IntelliJ's split mode (remote development), written with Compose Multiplatform. For now it runs on the desktop JVM. It connects to a backend and shows IntelliJ's Project tree and an editor with the backend's highlighting that you can type in, in IntelliJ's Islands Dark look ([`docs/intellij-look.md`](../docs/intellij-look.md)). How the protocol works: [`docs/split-protocol.md`](../docs/split-protocol.md), sections "Connection setup", "Our own client (step 2)" and "Editing (step 4)"; the edit messages in detail: [`docs/edit-protocol.md`](../docs/edit-protocol.md).
 
 | Package | What | Platform |
 |---|---|---|
@@ -23,13 +23,14 @@ export JETBRAINS_CLIENT_LIB="$HOME/Library/Caches/JetBrains/JetBrainsClientDist/
 
 The optional second argument opens that file at start; otherwise double-click a file in the tree. Fonts (JetBrains Mono, Inter) and icons (`intellij.platform.icons.jar`) are read from the same JetBrains Client install.
 
-Debug aids, both off by default:
+Debug aids, all off by default:
 
 | Variable | Effect |
 |---|---|
 | `CLIENT_SNAPSHOT=/tmp/client.png` | renders the window off-screen into that PNG every 3 s (works with a locked or hidden screen) |
 | `CLIENT_HIGHLIGHT_DUMP=/tmp/highlights.txt` | writes every highlight of the open file: range, layer, attribute keys, covered text |
+| `CLIENT_EDIT_DEBUG=1` | prints every edit request, the backend's answer and whether it matched the local edit (`[edit] …` lines) |
 
 The first argument is the join link the backend prints, with `0.0.0.0` replaced by its address. The join token in it works for one client only, so restart the backend before connecting a second time. Starting a backend on the Mac without disturbing a running IntelliJ: `docs/split-protocol.md`, "Running a backend on the Mac for client work".
 
-`./gradlew test` checks the frame encoding against the bytes in the protocol doc.
+`./gradlew test` checks the frame encoding against the bytes in the protocol doc, and the version hashes against numbers recorded from the real client.

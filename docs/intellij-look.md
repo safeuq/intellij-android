@@ -307,3 +307,19 @@ Variant markers on node icons (visibility lock, final, static, test/run mark) ar
 3. Whether the user's Project tree uses compact mode (row 22 vs 24) and the gutter has git markers (width +10).
 4. Selection corner radius 4 vs 8 (code passes arc 8 as RoundRectangle2D arc width).
 5. Icon x inside the renderer (2 or 3 px) from ipad/border.
+
+## 7. Measured against the real JetBrains Client (2026-11-15)
+
+Pixel measurements of the real client (263.7307.200, Islands Dark, default settings, `smoke` project without git) on the Mac. Where these differ from the sections above, these win; `IslandsDark.kt` and `EditorView.kt` use them.
+
+| Item | Code reading above | Measured |
+|---|---|---|
+| Project tree row height | 24 (compact 22) | **22** |
+| Tree selection | inset 12, radius 4 | inset 12, radius 4, fill `#2A4371` (focused) / `#2B4371` |
+| Gutter width, 10-line file (L = 14) | 63 + L = 77 with git markers | **56** = line numbers 14 + 4 + icons 17 + 4 + folding 11 + 6; no git markers, no annotation gap before the numbers |
+| Text start | right after the gutter | right after the gutter |
+| Gutter icon (run triangle) | 17 px icon area | 14 px icon centred in the 17 px area |
+| Editor tab | (not covered) | a pill: height 24, fill `#233657`, 1 px border `#2C4A82`, radius 6, in a 32 px row |
+| Line height | 21 | 21 (JetBrains Mono 12, char width 7.2) |
+
+Open item 3 of section 6 is answered: rows are 22 and there are no git markers in a non-git project.

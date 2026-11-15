@@ -52,15 +52,27 @@ data class Highlight(val id: Long, val start: Int, val end: Int, val layer: Int,
 /** An indent guide: a vertical line at [indentLevel] (columns) from the line of [start] to the line of [end]. */
 data class IndentGuide(val start: Int, val end: Int, val indentLevel: Int)
 
+/** A gutter icon (run marker, override marker, …) on the line of [offset]; [iconPaths] are paths in the icons jar. */
+data class GutterIcon(val offset: Int, val iconPaths: List<String>)
+
 data class EditorFile(
     val path: String,
     val text: String,
     /** Sorted by layer, lowest first, so later ones paint over earlier ones. */
     val highlights: List<Highlight>,
     val indentGuides: List<IndentGuide>,
+    val gutterIcons: List<GutterIcon> = emptyList(),
+    val caret: Int = 0,
+    val selectionStart: Int = 0,
+    val selectionEnd: Int = 0,
+    /** False until the backend has sent the document's version and the editor's caret, or while catching up with it. */
+    val editable: Boolean = false,
 ) {
     val name: String get() = path.substringAfterLast('/')
 }
+
+/** Editor keys that become backend editor actions. */
+enum class EditorKey { ENTER, BACKSPACE, DELETE }
 
 data class SessionState(
     val log: List<String> = emptyList(),

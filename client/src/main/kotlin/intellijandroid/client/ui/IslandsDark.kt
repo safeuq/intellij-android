@@ -22,7 +22,7 @@ object IslandsDark {
     val headerHeight = 41.dp                      // ToolWindow header
     val headerLeftInset = 12.dp
 
-    val treeRowHeight = 24.dp
+    val treeRowHeight = 22.dp                     // measured on the real client (theme file says 24)
     val treeTopInset = 4.dp
     val treeSideInset = 12.dp                     // Tree.border 4,12,4,12; also the selection's left/right inset
     val treeIndent = 19.dp                        // leftChildIndent 7 → 8 + rightChildIndent 11
@@ -30,6 +30,12 @@ object IslandsDark {
     val treeSelectionFocused = Color(0xFF2A4371)  // selection-bg-active
     val treeSelectionUnfocused = Color(0xFF33353B) // selection-bg-inactive
     val treeHover = Color(0x10FFFFFF)             // selection-bg-hovered
+
+    val tabRowHeight = 32.dp                      // measured: editor tabs row
+    val tabHeight = 24.dp
+    val tabSelectedBackground = Color(0xFF233657) // measured: selected editor tab pill
+    val tabSelectedBorder = Color(0xFF2C4A82)
+    val tabRadius = 6.dp
     val treeSelectionRadius = 4.dp                // Tree.Selection.arc 8 passed as arc diameter
 
     const val UI_FONT_SIZE = 13f                  // Inter 13 (user setting)
