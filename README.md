@@ -8,7 +8,7 @@ Running IntelliJ IDEA's backend natively on Android, with no Linux VM or proot, 
 |---|---|
 | `jbr/`: JetBrains Runtime 25 built for Android (bionic), as a Termux package | Works. IntelliJ IDEA 2026.3's remote-dev server runs on it in Termux; JetBrains Client on another machine edits, highlights and completes against it |
 | `backend/`: running IntelliJ on the phone | Manual commands below; start script and a bionic `fsnotifier` to come |
-| `client/`: native Android frontend | Protocol research done (`docs/split-protocol.md`): JetBrains' rd library and the generated protocol models run on the phone with one patched class; the connection layer is documented and still to be written |
+| `client/`: native Android frontend | Compose Multiplatform client, desktop (JVM) for now: connects to the backend with our own connection layer and shows a file with the backend's syntax highlighting (`client/README.md`). Protocol notes: `docs/split-protocol.md`. Android packaging and editing are next |
 
 Why a custom JBR: IntelliJ's remote-dev server needs JetBrains Runtime (`com.jetbrains.JBR.isGraphicsUtilsSupported()` must be `true`), and the JBR that ships with IntelliJ is built for glibc, which Android doesn't have.
 
@@ -25,6 +25,7 @@ jbr/
   scripts/find-unresolved-symbols.sh
   docker/tar-rosetta-wrapper.sh
 backend/checks/                small Java checks used on the phone
+client/src/                    the Compose client: connection/ (TLS, frames, rd wire), session/ (rd models), ui/
 client/spikes/rd-on-art/       checks that rd and the protocol models run on Android ART
 client/spikes/session-capture/ summarizes an rd trace recorded from JetBrains Client
 ```

@@ -73,7 +73,7 @@ Join link: tcp://0.0.0.0:5990#jt=3f9c…e1&p=IU&fp=9A41…07C2&cb=263.7307.200&n
 | Part | Example | Used for | Sent on the wire? |
 |---|---|---|---|
 | scheme, host, port | `tcp://192.168.0.105:5990` | where to connect. Scheme must be `tcp` or `tcp-direct`, port > 0. Replace `0.0.0.0` with the phone's address. | — |
-| `jt` | `3f9c…e1` | one-time join token | **yes, inside the client certificate** (subject `PSEUDONYM`), not as a frame. Seen. |
+| `jt` | `3f9c…e1` | one-time join token: once a client has connected with it, other clients using it are declined (`Declining invalid token`) | **yes, inside the client certificate** (subject `PSEUDONYM`), not as a frame. Seen. |
 | `fp` | `9A41…07C2` (64 upper-case hex digits) | expected server certificate fingerprint | no |
 | `cb` | `263.7307.200` | which JetBrains Client build Gateway downloads | no; no version check on the wire was found |
 | `jb` | `25.0.4.1b635.79` | which JBR build Gateway downloads | no |
@@ -103,7 +103,7 @@ Client side (seen in `TlsByteChannel` and the frontend `ClientTrustManager`):
   | key | RSA 2048 |
   | validity | now → now + 1 day; serial = now in epoch milliseconds |
   | subject `SERIALNUMBER` (2.5.4.5) | `tcp://192.168.0.105:5990` (the link without its `#…` part) |
-  | subject `UNIQUE_IDENTIFIER` (2.5.4.45) | a per-client UUID |
+  | subject `UNIQUE_IDENTIFIER` (2.5.4.45) | the client id: `<SHA3-256 fingerprint of the CA certificate below>-<epoch ms>`, e.g. `C62C256C…514E-1794743186847`. The backend rejects any other shape ("clientId does not start with client fingerprint"). |
   | subject `T` (2.5.4.12) | anonymized install id |
   | subject `CN` | local user name, e.g. `alex` |
   | subject `PSEUDONYM` (2.5.4.65) | **the `jt` value, verbatim** |
@@ -142,7 +142,7 @@ System frame statuses (`WireConnectStatus` ordinals):
 | 8 | `TRANSPORT_ACCEPTANCE` | 1 byte, `01` = accepted | yes |
 | 9 | `TRANSPORT_INDEX` | int32 | yes |
 | 10 | `WIRE_EXIST` | 1 byte | yes |
-| 11 | `CURRENT_CONFIRMED_FRAME_ACK` | int32 | no sender found |
+| 11 | `CURRENT_CONFIRMED_FRAME_ACK` | int32: last frame number received from the other side | **yes**: both sides send it once right after `ACCEPTED` (found in step 2) |
 | 12 | `FORCE_TERMINATE_WIRE` | int32 reason | close on receipt |
 | 13 | `PRE_PROTOCOL_MESSAGE` | `PreProtocolMessage` | no |
 
@@ -174,6 +174,8 @@ Client                                              Backend
   │◄────────────────────────────────── JOIN_PIN (4 digits)
   │◄──────────────────────── ACCEPTED (maybe an offer) │   PASSWORD_REQUIRED → password flow
   │── ACCEPTED (empty) ──────────────────────────────►│
+  │── CURRENT_CONFIRMED_FRAME_ACK (0) ───────────────►│   both directions; found in step 2
+  │◄──────────────────── CURRENT_CONFIRMED_FRAME_ACK (0) │
   │   connected: rd messages as message frames, both ways
 ```
 
@@ -515,7 +517,7 @@ Sizes are of the log text, which prints every received message twice (`onWireRec
 
 ### What a first client has to do, from this recording
 
-**Inferred**, to be tested in step 2:
+**Confirmed in step 2** ([Our own client](#our-own-client-step-2)), with the markup extensions it adds:
 
 1. Connect: handshake as in [Order of steps](#order-of-steps), then an rd `Protocol` named `ThinClient` over the wire.
 2. Create `SolutionModel`, and wait for the host to add `solutions[0]`.
@@ -524,6 +526,65 @@ Sizes are of the log text, which prints every received message twice (`onWireRec
 5. Open a file with `fileEditorsModel.requestComposite(fileId, fileUrl)`, or take the editors the host restores. Then read the document text from `backendPatches` and the highlighters from the text control's markup.
 
 Everything else the real client creates (diagnostics, test bridges, SSH agent, settings sync, Fleet RPC) is optional or can come later. That is a guess until a client that skips them still gets an editor.
+
+## Our own client (step 2)
+
+`client/` now holds a Compose Multiplatform desktop (JVM) client that connects to a backend, opens one file and shows it with the backend's syntax highlighting. It reuses JetBrains Client's rd and model jars and writes everything else itself. Tested 2026-11-15 against the phone backend (17:12–17:20 IST) and, after the phone went offline, against the same IntelliJ build on the Mac (17:24–17:31 IST). Everything in this section is **Seen** unless it says otherwise.
+
+What the client does, in order. On the Mac this whole sequence took about 1 second:
+
+| Time (IST) | Step |
+|---|---|
+| 17:30:38.087 | TCP connect to `127.0.0.1:5990` |
+| 17:30:38.145 | TLS 1.3 done; the server's SHA3-256 fingerprint matches `fp` |
+| 17:30:38.155–.168 | `TRANSPORT_INDEX` → acceptance → `WIRE_EXIST` → `JOIN_PIN` → `ACCEPTED` → our `ACCEPTED` |
+| 17:30:38.179 | `CURRENT_CONFIRMED_FRAME_ACK` exchange (see below) |
+| 17:30:38.223 | rd `Protocol("ThinClient", …)` up; our models created |
+| 17:30:38.288 | Host adds `solutions[0]`; we set `readyForExtsRegistration = true` |
+| 17:30:38.393 | Color scheme `Darcula` received: 213 attribute keys with a foreground color |
+| 17:30:38.661 | `VfsModel.findFile(path)` → `RdFileIdNew(backendId = 5055, …)` |
+| 17:30:38.830 | `fileEditorsModel.requestComposite(fileId, "file://…/Main.java")` → `SuccessfulRequestComposite` |
+| 17:30:39.036–.076 | Document and editor added; text arrives as `RdResetDocumentChange` (260 characters) |
+| 17:30:39.119 | 36 highlighters in the editor's markup, 15 of them with a color in `Darcula` (keywords, strings, `;`) |
+
+The models it creates: `SolutionModel`, `HighlighterRegistrationHostModel` (sets `registry = DefaultRegistryModel()`), `DocumentsOperationModel` with `requestResponseModel`, `VfsModel`, and per project `fileEditorsModel` and `editorTabsModel`. Nothing else: no Fleet RPC, no Rhizome DB subscription, no Lux. The backend gave us the editor anyway, which answers the open question from the recording.
+
+### What the recording didn't show, found by failing
+
+| Attempt | Backend said (its `idea.log`, which logs in UTC on the phone) | Fix |
+|---|---|---|
+| 1 | `protocol error: clientId does not start with client fingerprint` | The certificate's `UNIQUE_IDENTIFIER` is the client id: `<SHA3-256 fingerprint of the per-process CA certificate>-<epoch ms>`, e.g. `C62C256C…514E-1794743186847` (JetBrains Client's `ThinClientId`). Not a UUID. |
+| 2 | (connected; then our side failed) | rd's `UnsafeBuffer(256)` is native memory and `getArray()` throws; use `UnsafeBuffer(ByteArray(256))`. `Protocol` calls `startDeliveringMessages()` itself; calling it again throws. |
+| 3 | `Declining invalid token from safeuq` → we get `USER_DECLINED` | The join token `jt` works once. After a client has connected with it, a new client id with the same `jt` is refused. Restart the backend (or keep the client id) for a new attempt. |
+| 4 | `Expected to get frame of type: <SystemFrame>, but received: <Message Frame>` | After `ACCEPTED`, both sides send `CURRENT_CONFIRMED_FRAME_ACK` (status 11, int32 = last frame number received from the other side, `0` for a new wire) and read the other's, before any message frame (`ServiceMessageProcessor.resendUnconfirmedFrames`). |
+| 5 | `null cannot be cast to non-null type T of …ProtocolMarkupExtensionsKt.getExtension`, `lineMarkerActionModel is null`; no highlighters | Every markup model the client creates must carry the extensions JetBrains Client puts there, looked up by key (`TOOLTIP_PROVIDER_MODEL_KEY`, `LINE_MARKER_ACTIONS_KEY`, `MARKUP_REVALIDATION_KEY`, … 20 for an editor, 13 for a document). See `client/src/main/kotlin/intellijandroid/client/session/MarkupExtensions.kt`. |
+
+The client creates three markup models: one for the editor (`textControls[…].extensions[MarkupTextControlExtension].markup`) and two for the document (`markups[RdMarkupKey(null)]` and `markups[RdMarkupKey(projectId)]`). Syntax highlighting arrives in the editor's model. Errors and warnings from code analysis ("daemon" results) are expected in the per-project document model (**Inferred**; the client doesn't show them yet).
+
+The colors: the backend sends **every** installed scheme on `registry.colorsScheme` (`Default`, `Darcula`, `Light`, `Islands Dark`, `Dark purple`, … 9 on this build). The client picks one by name. Highlighters carry attribute keys, not colors (`JAVA_KEYWORD` with fallback `DEFAULT_KEYWORD`). Look a key up in the scheme, then its fallbacks.
+
+### Running a backend on the Mac for client work
+
+The Mac's IntelliJ IDEA (`~/Applications/IntelliJ IDEA.app`) is the same build, `263.7307.200` IU, so the protocol jars match. Two traps:
+
+- **It must not share folders with a running desktop IntelliJ.** On the first try, `remote-dev-server.sh` didn't start a backend: the launcher found the running IDE and handed it the command (`External instance command received` → `UnattendedHostUnavailableStarter`; the script printed `The command 'remoteDevHost' requires Remote Development backend`). `IDEA_PROPERTIES` with separate paths did **not** prevent this. Passing the paths as JVM options did: `IJ_JAVA_OPTIONS="-Didea.config.path=… -Didea.system.path=… -Didea.log.path=… -Didea.plugins.path=…"`. Check the first lines of the new `idea.log` before connecting. (The desktop IDE shut down normally a minute after that first try; there was no exit in the handed-over command, but the two may be related.)
+- **A fresh config doesn't trust the project.** The project open stops at a trust prompt that our client can't show yet. Set `REMOTE_DEV_TRUST_PROJECTS=1`, and `REMOTE_DEV_NON_INTERACTIVE=1`.
+
+```sh
+BACKEND=/path/to/scratch/mac-backend      # holds config/ system/ log/ plugins/ and the project
+REMOTE_DEV_TRUST_PROJECTS=1 REMOTE_DEV_NON_INTERACTIVE=1 \
+IJ_JAVA_OPTIONS="-Didea.config.path=$BACKEND/config -Didea.system.path=$BACKEND/system -Didea.log.path=$BACKEND/log -Didea.plugins.path=$BACKEND/plugins" \
+  "$HOME/Applications/IntelliJ IDEA.app/Contents/bin/remote-dev-server.sh" run "$BACKEND/smoke" --listenOn 127.0.0.1 --port 5990
+```
+
+Running the client: see `client/README.md`.
+
+### Not done yet
+
+- Editing: typing goes back to the backend; the format is still open (see the questions below). `RdCaretStateSnapshot` and other patch items are logged and ignored.
+- Daemon results (errors, warnings, the grey "unused" variable), the project tree, tabs, Lux.
+- The real client's `HighlighterRegistrationHostModel` also gets `demoTextTagsMap`, `colorSettingsPage` and `severities`; ignored.
+- No resend after a reconnect: a dropped connection ends the session.
 
 ## Plan for the client that follows from this
 
@@ -535,10 +596,10 @@ Everything else the real client creates (diagnostics, test bridges, SSH agent, s
 
 | Question | How to answer it |
 |---|---|
-| How does the backend check the client certificate? Is `PSEUDONYM` = `jt` enough, or does it need the product-info extension `1.3.6.1.4.1.57712.78.1`? | Live attempt against the phone; the backend log (`~/.cache/JetBrains/IntelliJIdea2026.3/log/idea.log`) should give the reason for a rejection. Or decompile the backend side (`RdServerDirectConnectionsListener` in the backend jars). |
-| What does the backend put in its `ACCEPTED` frame, and does it accept an empty one from us? | Same live attempt. |
+| ~~How does the backend check the client certificate?~~ | Answered in step 2: `PSEUDONYM` = `jt` plus a client id starting with the CA's fingerprint; no product-info extension needed. |
+| ~~Does the backend accept an empty `ACCEPTED` from us?~~ | Yes (`Peer made no negotiation offer, skipping`). |
 | ~~Which rd models does the client have to bind first, and in what order?~~ | Answered by [A recorded session](#a-recorded-session). |
-| Does the host give a client an editor if it creates only the models in [What a first client has to do](#what-a-first-client-has-to-do-from-this-recording) (no Fleet RPC, no Rhizome DB subscription)? | Step 2: our own client against the phone backend. |
+| ~~Does the host give a client an editor if it creates only the editor's models (no Fleet RPC, no Rhizome DB)?~~ | Yes: [Our own client](#our-own-client-step-2). |
 | How does typing travel: patches on `requestResponseModel`, or something else? | A capture that edits text. |
 | What does Lux traffic look like when a dialog opens? | A capture that opens Settings. |
 | rd message context bytes | rd library source (JetBrains/rd, public), or capture. Not needed while we reuse the library. |
