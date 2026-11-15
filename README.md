@@ -26,6 +26,7 @@ jbr/
   docker/tar-rosetta-wrapper.sh
 backend/checks/                small Java checks used on the phone
 client/spikes/rd-on-art/       checks that rd and the protocol models run on Android ART
+client/spikes/session-capture/ summarizes an rd trace recorded from JetBrains Client
 ```
 
 No upstream source is committed. `jbr/scripts/build.sh` fetches termux-packages at a pinned commit into `work/`, and the recipe downloads the JBR source tarball, checked against its SHA-256.

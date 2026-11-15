@@ -365,11 +365,171 @@ What each check covers:
 
 Android's built-in BouncyCastle (`BC` above) has no SHA3, so the client needs its own BouncyCastle (`bcprov` for SHA3-256, `bcpkix` to build the client certificate).
 
+## A recorded session
+
+To learn what a client must do after the handshake, the real JetBrains Client was recorded talking to the phone backend on 2026-11-15, 16:48–16:51 IST. The recording is rd's own trace log; nothing was sniffed off the wire. Everything in this section is **Seen** in that log unless it says otherwise.
+
+### How it was recorded
+
+rd logs every message it sends and receives under three logger names: `protocol.SEND`, `protocol.RECV`, `protocol.INIT` (`Protocol.logCategory = "protocol"` plus `sublogger("SEND")` etc. in rd-framework). JetBrains Client turns them on from the system property `idea.log.trace.categories`, which `LogLevelConfigurationManager` reads. The launcher adds `IJ_JAVA_OPTIONS` to the JVM options.
+
+```sh
+# phone (Termux): backend on the smoke project
+IDEA_JDK=$PREFIX/lib/jvm/jbr-25 REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0 \
+  ~/intellij/idea-IU-263.7307.200/bin/remote-dev-server.sh run ~/intellij/smoke --listenOn 0.0.0.0 --port 5990
+
+# Mac: tunnel, then the client with rd tracing
+ssh -p 8022 -N -L 127.0.0.1:5990:127.0.0.1:5990 192.168.0.105
+IJ_JAVA_OPTIONS='-Didea.log.trace.categories=protocol.SEND,protocol.RECV,protocol.INIT' \
+  "…/JetBrainsClient-263.7307.200-aarch64…/IntelliJ IDEA.app/Contents/MacOS/jetbrains_client" \
+  thinClient 'tcp://127.0.0.1:5990#jt=…&p=IU&fp=…&cb=263.7307.200&newUi=true&jb=25.0.4.1b635.79'
+```
+
+The trace is large: in about 3 minutes the client wrote 75 MB of log in six rotated files (`idea.5.log` is the oldest, `idea.log` the newest), 9,456 trace records. IntelliJ keeps only a few rotated files, so stop the client within a few minutes, or the start of the session is lost. Join the parts oldest first and run `client/spikes/session-capture/analyze-capture.py capture.log`. The log contains the join token, so it is not committed.
+
+The recorded session: the client connects, the backend opens `smoke` with `Main.java` already open from the last session, the client shows the editor with highlighting. No dialog was opened.
+
+### Timeline
+
+| Time (IST) | What happened | Who |
+|---|---|---|
+| 16:48:21.296 | TCP connect to `127.0.0.1:5990` | client |
+| 16:48:21.697 | TLS done; trust manager received 1 certificate (the backend's) | both |
+| 16:48:21.698 | Sends `TRANSPORT_INDEX` = 0, waits for acceptance | client |
+| 16:48:21.794 | Transport `ACCEPTED` | host |
+| 16:48:21.821 | `Unable to validate session tokens. Session token data is not provided. Skip.`; no password asked | client |
+| 16:48:21.979 | Wire state `CONNECTED` | both |
+| 16:48:21.995 | rd `Protocol` set up on the wire; 24 built-in types registered (`kotlin.Byte` id 1 … `kotlin.BooleanArray` id 38) | client |
+| 16:48:22.061 | First model created: `CodeWithMeDiagnosticsModel` (then 12 more, see below) | client |
+| 16:48:22.114 | `Connection established after: 938 ms` | client |
+| 16:48:22.926 | Host adds the project: `SolutionModel.solutions[0] = Solution(projectId = "6d9b208e-…:3M6rEz4…")` | host |
+| 16:48:23.035 | Host info: `productCode = "IU"`, `osName = "Linux"`, `osVersion = "6.1.162-android14-11"` | host |
+| 16:48:26.091 | Sets `solutions[0].solutionLifecycle.readyForExtsRegistration = true` | client |
+| 16:48:26.158–26.926 | Host creates 16 project-level models (`projectExtrasModel`, `DocumentsOperationModel` at 26.377, `projectViewModel`, `statusBarModel`, …) | host |
+| 16:48:26.690 | `solutions[0].isLoaded = true` | host |
+| 16:48:27.414 | Calls `fileEditorsModel.requestComposite(fileId = 46836, fileUrl = "file:///data/data/com.termux/files/home/intellij/smoke/src/demo/Main.java")` | client |
+| 16:48:29.658 | `DocumentsOperationModel.documents` Add: the document for file 46836 | host |
+| 16:48:29.746 | `documents[…].textControls` Add: the editor (`kernelEditorId = "85ji68dcvrnt5a74vu15"`, `kind = EditorTab`) | host |
+| 16:48:29.831 | The file's text arrives (see [The editor's data](#the-editors-data)) | host |
+| 16:48:30.318 | First syntax highlighters | host |
+| 16:48:30.491 | `Thin client starter end` (the window is up) | client |
+
+From TCP connect to a highlighted editor: about 9 seconds against the phone. Most of it is the backend opening the project (16:48:22.9 → 16:48:26.7).
+
+### How a model gets connected: both sides create it
+
+The root models are rd *extensions* ("exts") of one root named `ThinClient`. An ext is connected only when **both** sides create it. Each side announces its own creation on a shared signal:
+
+```
+SEND signal `ThinClient.ProtocolExtCreated` value = ExtCreationInfo(rName=ThinClient.CodeWithMeDiagnosticsModel, rdId=null, hash=-9170676275752222606, …)
+SEND ext `ThinClient.CodeWithMeDiagnosticsModel` (11394414885316123752) :: Ready
+RECV ext `ThinClient.CodeWithMeDiagnosticsModel` (11394414885316123752) :: remote: ReceivedCounterpart
+```
+
+`hash` is the model's `serializationHash`. For all 53 exts created by both sides, the client's hash equals the backend's: the model jars must come from the **exact** backend build. A model one side never creates simply stays unconnected; the log shows no error for that (for example `IjLightModel`, `quickDocHostModel`, `hyperlinkHighlightingModel` were created by the host only).
+
+Who created each ext first:
+
+| Created first by the client (at connect, 16:48:22.06–22.33) | Created first by the host |
+|---|---|
+| `CodeWithMeDiagnosticsModel`, `AsyncActionsModel`, `LoggerModel`, `StartupSequenceModel`, `SshAgentProxyModel`, `VfsModel`, `DistributedTestBridgeModel`, `RemoteSettingsModel`, `LambdaTestBridgeModel`, `FleetRpcModel`, `CodeWithMeConnectionExtModel`, `SettingsModel`, **`SolutionModel`** | `UIAutomationInteractionModel`, `PortForwardingModel`, `LanguagePluginsSyncModel`, **`HighlighterRegistrationHostModel`**, **`LuxModel`**, `NewNotificationsModel`, `JbaInfoModel`, `RemoteSearchableOptions`, `HostInfoModel`, `CodeWithMeUnattendedHostControlModel`, `ShellModel`, **`DocumentsOperationModel`**, `CodeVisionSettingsModel` |
+| Later, per project (`solutions[0].…`): **`fileEditorsModel`**, `navigationBarModel`, `ideFrameSynchronizerModel`, `searchEverywhereModel`, `problemFileModel`, `terminalModel`, `debuggerConsoleInfoModel`, `debuggerModel`; plus `ClipboardModel`, `SyncedSettingsModel`, `CefModel`, `UiContextModel` | Per project: `codeWithMeRunConfigurationsModel`, `toolWindowModel`, `projectExtrasModel`, `gatewayCustomizationModel`, `hyperlinkHighlightingModel`, `quickDocHostModel`, `gitModel`, `vcsModel`, `diffViewersModel`, `userFocusModel`, `codeStructureTreeModel`, `backendRunContentModel`, `filterProviderModel`, `cWMExternalSystemModel`, **`projectViewModel`**, `localChangesModel`, `testsRunContentModel`, **`statusBarModel`**, **`editorTabsModel`**, `virtualFilesExtrasModel` |
+
+The gate between the two phases is one property the client sets: `solutions[0].solutionLifecycle.readyForExtsRegistration = true` (16:48:26.091). Of the 20 project-level models the host created first, 16 came in the 0.8 s after it (16:48:26.158–26.926); 2 came before (`codeWithMeRunConfigurationsModel` 16:48:23.708, `toolWindowModel` 16:48:25.163) and 2 with the first editor (`editorTabsModel`, `virtualFilesExtrasModel`, 16:48:29.8). **Inferred:** the host waits for this property before registering most project models.
+
+The client also reports its window: `ideFrameSynchronizerModel.frameSize = LxSize(width = 1728, height = 1084)`, `frameLocation = LxPoint(0, 33)`. An Android client would send its screen size here.
+
+### The editor's data
+
+An open file is a document plus one *text control* per editor showing it, all under `DocumentsOperationModel`:
+
+```
+RECV map `ThinClient.DocumentsOperationModel.documents` Add
+  key   = RdDocumentIdWithFileId(fileId = RdFileIdNew(backendId = 46836, frontendId = 46836, managingFsCreationTimestamp = 1794673134749))
+  value = PatchEngineDocumentModel(textControls = RdMap […], extensions = [MarkupDocumentExtension(…), UndoParametersDocumentExtension(isUndoDisabled = false)],
+                                   creationSide = Backend, isWriteThreadOnly = true, uniqueId = "unique-id-backend-0")
+
+RECV map `…documents.[46836].textControls` Add
+  key   = KernelAwareTextControlId(kernelEditorId = "85ji68dcvrnt5a74vu15", documentId = …46836, tabIndex = 1, kind = EditorTab, clientId = "64CE2B91…-1794741500033", projectId = …)
+```
+
+The document model holds **no text**. The text comes as a patch on `DocumentsOperationModel.requestResponseModel.backendPatches`:
+
+```
+RECV signal `ThinClient.DocumentsOperationModel.requestResponseModel.backendPatches`
+  value = RdPatchWithMetadata(patch = RdPatch(changes = [RdResetDocumentChange(text = "package demo;\n\npublic class Main {\n    public static void main(final String[] arguments) {\n …")], …))
+```
+
+The same signal carries other backend state changes, for example `RdToggleDumbMode(projectId = …, enabled = false)` (dumb mode, IntelliJ's "indexing in progress" state, is off). The client sends its own requests on `requestResponseModel.requestsWithTime` (`RdRequests(requests = [RdRequestHolder(requestId = 0, request = RdNavigationBarRequest())])`) and gets `responsesWithTime` back. **Inferred:** typing goes back the same way, as patches from the client; to be confirmed with a capture that edits text.
+
+Syntax highlighting arrives per text control, as ranges tagged with attribute keys, not colors:
+
+```
+RECV signal `…textControls.[85ji68dcvrnt5a74vu15].extensions[1].markup.$.highlightersAdded`
+  value = HighlighterList(elements = [HighlighterElement(highlighter = SyntaxHighlighterModel(
+            textAttributesKeys = [IdeaTextAttributesKey(externalName = "JAVA_KEYWORD", fallback = "DEFAULT_KEYWORD")],
+            layer = 1000, documentVersion = RdDocumentVersion(value = 0, hash = -5446235163934729545), …), …)])
+```
+
+The colors for those keys come once, at connect, from the host-created `HighlighterRegistrationHostModel`: `registry.colorsScheme = ColorsSchemeModel(name = "Darcula", attributes = …)` (237 KB in the log).
+
+### Fleet RPC in this session
+
+`FleetRpcModel` carried the most messages: 2,864, with 109 different service methods. Each message is a JSON envelope:
+
+```json
+{"type":"envelope","destination":"fleet","origin":"ep375gqi478gvjhs6aom",
+ "payload":"{\"type\":\"call\",\"requestId\":\"3tti8bg3n90v1ogttc1b\",\"service\":\"com.jetbrains.rd.platform.codeWithMe.settings.fileBasedSync.FileBasedSettingsSyncApi\",\"method\":\"hasInitialSyncCompletedBefore\",\"args\":{},\"meta\":{\"CompressedVectorClock\":{\"clientId\":\"c49m718s59qtlkbbh93f\",\"consumedTxs\":0,\"sentTxs\":0}},\"streamBudget\":100}"}
+```
+
+| Message kind | Client → host | Host → client |
+|---|---|---|
+| `call` | 765 | — |
+| `call_result` | — | 304 |
+| `call_failure` | — | 1,226 |
+| `stream_init` / `stream_data` / `stream_closed` | 75 / 1 / 1 | 150 / 290 / 52 |
+
+What the calls were for:
+
+- **Failures.** 1,224 of the 1,226 failures are one call repeated: `AIAssistantAgentsApi.agentStatusFlow` → `unresolvedService: "API for com.intellij.ml.llm.chat.shared.rpc.AIAssistantAgentsApi#agentStatusFlow could not be found"` (the client has the AI Assistant frontend; the backend doesn't have the plugin).
+- **Plugin management.** `PluginManagerApi.getInstalledPlugins` / `getVisiblePlugins`: the largest replies of the session, 3.2–3.7 MB of JSON each.
+- **Editor extras.** These calls name the editor id they got over rd: `IdentifierHighlightingRemoteApi.getMarkupData`, `BackendInlineCompletionRemoteApi.getBackendEvents`, `KubernetesFloatingToolbarRemoteApi.isToolbarApplicable`, `CodeNotesUiRemoteApi.parentSelection`, `InlineProgressIndicatorRemoteApi.getStates`.
+- **Settings sync.** `FileBasedSettingsSyncApi.*`.
+- **Rhizome DB.** `RemoteKernel.subscribeWithChunkedSnapshot` and `RemoteKernel.transact`, one call each.
+
+The document, editor, highlighting, project tree, status bar and actions all came over rd models, not Fleet RPC. **Inferred:** a first client can skip Fleet RPC and still show a highlighted editor. Whether the backend holds anything back without the Rhizome DB subscription is **Unknown**.
+
+### Lux in this session
+
+The host created `LuxModel`, but only 1 message went out and 3 came in. Nothing was painted through Lux, because no dialog or backend-only tool window was opened. A Lux capture needs a session that opens one (Settings, for example).
+
+### The heaviest rd messages
+
+| Message | Size in the log | Needed for a first client? |
+|---|---|---|
+| `RemoteSearchableOptions.requestOptions` reply (all searchable setting names) | 20 MB | No: only the client asked for it, for the Settings search |
+| `AsyncActionsModel.registerActions` (every action with its presentation) | 5.8 MB | Only for menus and toolbars |
+| `HighlighterRegistrationHostModel.registry.colorsScheme` | 237 KB | Yes, for highlight colors |
+
+Sizes are of the log text, which prints every received message twice (`onWireReceived` and `dispatched`), not bytes on the wire.
+
+### What a first client has to do, from this recording
+
+**Inferred**, to be tested in step 2:
+
+1. Connect: handshake as in [Order of steps](#order-of-steps), then an rd `Protocol` named `ThinClient` over the wire.
+2. Create `SolutionModel`, and wait for the host to add `solutions[0]`.
+3. Set `solutions[0].solutionLifecycle.readyForExtsRegistration = true`.
+4. Create `DocumentsOperationModel`, `HighlighterRegistrationHostModel`, and per project `fileEditorsModel` and `editorTabsModel`. Later also `projectViewModel`, `statusBarModel`, `LuxModel`.
+5. Open a file with `fileEditorsModel.requestComposite(fileId, fileUrl)`, or take the editors the host restores. Then read the document text from `backendPatches` and the highlighters from the text control's markup.
+
+Everything else the real client creates (diagnostics, test bridges, SSH agent, settings sync, Fleet RPC) is optional or can come later. That is a guess until a client that skips them still gets an editor.
+
 ## Plan for the client that follows from this
 
 1. **Reuse:** rd-core, rd-framework (with `UnsafeBuffer` patched), rd-text, and the two generated model jars of the **exact** backend build (class version lowered, resource files kept). Plus kotlin-stdlib and kotlinx-coroutines.
 2. **Write ourselves:** the connection layer (TLS with client certificate and fingerprint check → DEFLATE → frames → handshake → sequence numbers → `IWire`). It's small and fully described above.
-3. **Then** bind the root models over that wire, starting with what the editor needs, and render Lux for everything else.
+3. **Then** create the root models over that wire in the order of [What a first client has to do](#what-a-first-client-has-to-do-from-this-recording), starting with what the editor needs, and render Lux for everything else.
 
 ## Open questions
 
@@ -377,7 +537,10 @@ Android's built-in BouncyCastle (`BC` above) has no SHA3, so the client needs it
 |---|---|
 | How does the backend check the client certificate? Is `PSEUDONYM` = `jt` enough, or does it need the product-info extension `1.3.6.1.4.1.57712.78.1`? | Live attempt against the phone; the backend log (`~/.cache/JetBrains/IntelliJIdea2026.3/log/idea.log`) should give the reason for a rejection. Or decompile the backend side (`RdServerDirectConnectionsListener` in the backend jars). |
 | What does the backend put in its `ACCEPTED` frame, and does it accept an empty one from us? | Same live attempt. |
-| Which rd models does the client have to bind first, and in what order (root model, `serializationHash` checks)? | Read `ThinClientConnectionFactory` / client startup, or log rd traffic from the real JetBrains Client (rd has protocol logging). |
+| ~~Which rd models does the client have to bind first, and in what order?~~ | Answered by [A recorded session](#a-recorded-session). |
+| Does the host give a client an editor if it creates only the models in [What a first client has to do](#what-a-first-client-has-to-do-from-this-recording) (no Fleet RPC, no Rhizome DB subscription)? | Step 2: our own client against the phone backend. |
+| How does typing travel: patches on `requestResponseModel`, or something else? | A capture that edits text. |
+| What does Lux traffic look like when a dialog opens? | A capture that opens Settings. |
 | rd message context bytes | rd library source (JetBrains/rd, public), or capture. Not needed while we reuse the library. |
 | Is the byte-by-byte `copyMemory` shim fast enough? | Measure once real traffic flows. |
 | Does a newer D8 accept class version 69 directly? | Try the latest build-tools / R8. |
