@@ -1,0 +1,399 @@
+# Split-mode protocol: how JetBrains Client talks to the IntelliJ backend
+
+Research for the native Android frontend (`client/`). Started 2026-11-15.
+
+Everything here was read out of **JetBrains Client 263.7307.200** (the build JetBrains Gateway downloads for IntelliJ IDEA 2026.3, `IU-263.7307.200`) and checked, where it says so, on the phone (Samsung SM-S926B, Android 17, API 37, arm64). Nothing here comes from JetBrains documentation unless a link says so.
+
+How sure each claim is:
+
+| Mark | Meaning |
+|---|---|
+| **Seen** | Read in the decompiled code or bytecode, or printed by a test run |
+| **Inferred** | Follows from what was seen, but not observed directly |
+| **Unknown** | Not determined yet; listed in [Open questions](#open-questions) |
+
+## Summary
+
+| Question | Answer |
+|---|---|
+| What carries the frontend–backend traffic? | One TLS 1.3 connection: TCP → TLS → raw DEFLATE → length-prefixed frames → JetBrains' **rd** protocol. Seen. |
+| What runs on top of rd? | Three things: generated **rd models** (project view, editor tabs, debugger, …), **Fleet RPC** (JSON messages carried by one rd model), and **Lux** (backend-painted Swing UI sent as drawing commands). Seen. |
+| How do plugins reach the frontend? | Plugins not written for split mode run only on the backend; their logic works, and their own Swing UI reaches the frontend through Lux. Split plugins have a frontend module that runs inside JetBrains Client and calls its backend module over Fleet RPC. |
+| Can the rd library run on Android? | **Yes, with one patched class.** `UnsafeBuffer` uses two `sun.misc.Unsafe` methods and 15 constants ART lacks. With those calls routed to a small shim, two rd protocols exchange a signal over a socket on the phone. Seen. |
+| Can the generated protocol models run on Android? | **Yes.** D8 refuses their Java 25 class files (version 69). With the version lowered to 61 they dex, load, serialize, and resolve polymorphic types from their resource files on the phone. Seen. |
+| Can we reuse JetBrains' connection code? | **No.** It depends on the IntelliJ platform, Swing, JNA and more (see [dependencies](#what-each-jar-depends-on)). The client has to reimplement the connection layer, which is small: [Connection setup](#connection-setup). |
+| What does Android lack for the connection? | `SHA3-256` (used for the server fingerprint) and an X.509 certificate builder (for the client certificate). Both come from BouncyCastle. TLS 1.3 and raw DEFLATE are built in. Seen. |
+
+What this means for the client: build it on JetBrains' own rd library and generated models (patched as below), and write only the connection layer and the UI ourselves.
+
+## Layers on one connection
+
+```
+ JetBrains Client (frontend)                                 IntelliJ backend (phone, port 5990)
+ ───────────────────────────                                 ──────────────────────────────────
+ rd models ─┐  Fleet RPC (JSON) ─┐  Lux (draw commands) ─┐
+            │   via FleetRpcModel │   via LuxModel        │
+            └────────────┬────────┴───────────────────────┘
+                 rd Protocol "ThinClient", IdKind.Client
+                         │  each rd message = one MessageFrame
+                 wire: sequence numbers + acknowledgements
+                         │
+                 frames: int32 length + body        (ping = length 0)
+                         │
+                 raw DEFLATE stream, sync flush after every write
+                         │
+                 TLS 1.3 (client certificate required, server checked by SHA3-256 fingerprint)
+                         │
+                 TCP  ─────────────────────────────────────────────►  tcp://<phone>:5990
+```
+
+The stack, as built by `TransportWrapperImpl` (seen), from the socket upward:
+
+| Layer | Class (package `com.intellij.platform.split.connection.protocol`) | Effect on the bytes |
+|---|---|---|
+| Socket | `transport.SocketStreamTransport` | plain blocking `SocketChannel`, no socket options |
+| Stats | `transport.StatStreamTransport` | counters and the idle watchdog; no change |
+| TLS | `channel.TlsByteChannel` (tlschannel library over a JDK `SSLEngine`) | TLS 1.3 |
+| Telemetry | `channel.TelemetryByteChannel` | counters; no change |
+| Compression | `channel.CompressingByteChannel` | raw DEFLATE, both directions |
+| Write merging | `channel.BufferedByteChannel` | merges writes made within 3 ms; no change to the byte stream |
+| Framing | `channel.FramedByteChannelImpl`, `channel.frame.*` | int32 length + body |
+| Wire | `wire.SecureWireOverStreamTransport` + `ServiceMessageProcessor` | sequence numbers, acks, resends; implements rd's `IWire` |
+
+## Connection setup
+
+### The join link
+
+The backend prints a link like this (values shortened):
+
+```
+Join link: tcp://0.0.0.0:5990#jt=3f9c…e1&p=IU&fp=9A41…07C2&cb=263.7307.200&newUi=true&jb=25.0.4.1b635.79
+```
+
+| Part | Example | Used for | Sent on the wire? |
+|---|---|---|---|
+| scheme, host, port | `tcp://192.168.0.105:5990` | where to connect. Scheme must be `tcp` or `tcp-direct`, port > 0. Replace `0.0.0.0` with the phone's address. | — |
+| `jt` | `3f9c…e1` | one-time join token | **yes, inside the client certificate** (subject `PSEUDONYM`), not as a frame. Seen. |
+| `fp` | `9A41…07C2` (64 upper-case hex digits) | expected server certificate fingerprint | no |
+| `cb` | `263.7307.200` | which JetBrains Client build Gateway downloads | no; no version check on the wire was found |
+| `jb` | `25.0.4.1b635.79` | which JBR build Gateway downloads | no |
+| `p` | `IU` | product code, stored only | no |
+| `newUi` | `true` | not referenced in the connection code (Unknown) | no |
+| `pp` | (absent) | optional local proxy port; skip | — |
+
+Seen in `TCPConnectionHandler` and `ClientTransportCreationUtil` (package `com.intellij.platform.frontend.split.connection`).
+
+### TLS
+
+Client side (seen in `TlsByteChannel` and the frontend `ClientTrustManager`):
+
+- `SSLContext.getInstance("TLSv1.3")`, no SNI, no ALPN. The client sends the ClientHello right after TCP connects; there is no plaintext preamble.
+- **Server check:** the server must present exactly one certificate. Its fingerprint is `UPPERCASE_HEX(SHA3-256(DER bytes of the certificate))`, no separators, and must equal `fp` (`String.equals`). No CA chain, dates or host name are checked. Code: `com.jetbrains.rd.platform.util.CertificateExKt.getSha3Fingerprint`:
+
+  ```java
+  MessageDigest md = MessageDigest.getInstance("SHA3-256");
+  byte[] digest = md.digest(certificate.getEncoded());
+  return StringUtil.toHexString(digest).toUpperCase(Locale.getDefault());
+  ```
+
+- **Client certificate (required, the server side sets `setNeedClientAuth(true)`):** generated per connection by `ClientTransportCreationUtil.createClientCertificate` and `SelfSignedCertificate.generateNewCertificate`:
+
+  | Field | Example value |
+  |---|---|
+  | key | RSA 2048 |
+  | validity | now → now + 1 day; serial = now in epoch milliseconds |
+  | subject `SERIALNUMBER` (2.5.4.5) | `tcp://192.168.0.105:5990` (the link without its `#…` part) |
+  | subject `UNIQUE_IDENTIFIER` (2.5.4.45) | a per-client UUID |
+  | subject `T` (2.5.4.12) | anonymized install id |
+  | subject `CN` | local user name, e.g. `alex` |
+  | subject `PSEUDONYM` (2.5.4.65) | **the `jt` value, verbatim** |
+  | issuer | a random per-process CA, `CN=<uuid>`, RSA 2048, 60 days |
+  | signature | `SHA512WithRSA`, signed with the leaf's own key |
+  | extensions | Subject/Authority Key Identifier, BasicConstraints(CA=false), optional product info under OID `1.3.6.1.4.1.57712.78.1` |
+  | chain sent | `[leaf, CA]` |
+
+  How the backend checks this certificate is Unknown (that code is in the backend jars). Since the CA is random per process, the backend cannot be checking a chain; it most likely reads `PSEUDONYM` and compares it with the token (Inferred).
+
+### Frames
+
+Everything after the TLS handshake, in both directions, is **one continuous raw DEFLATE stream** (`new Deflater(level, true)` / `new Inflater(true)`: no zlib header). It is flushed with `SYNC_FLUSH` after every write, so each write ends with `00 00 FF FF`. Keep one `Deflater` and one `Inflater` for the whole connection, because the dictionary carries over. The client uses level 1, the backend level 4. Seen in `CompressingByteChannel`.
+
+Inside that stream (all integers big-endian, seen in `FramedByteChannelImpl` and `FrameFactory`):
+
+```
+frame        := int32 N  ||  body[N]            0 ≤ N ≤ 300,000,000
+body, N == 0 := ping
+body, first int32 == -1 := system frame  := int32 -1 || int32 status || data
+otherwise    := message frame := int32 seq || int32 lastReceivedSeq || rdPayload
+```
+
+System frame statuses (`WireConnectStatus` ordinals):
+
+| # | Status | Data | Used by a basic client? |
+|---|---|---|---|
+| 0 | `ACCEPTED` | empty, or an 8-byte `NegotiationOffer` | yes |
+| 1 | `USER_DECLINED` | — | handle as failure |
+| 2 | `PASSWORD_REQUIRED` | — | no (fail) |
+| 3 | `JOIN_PIN` | 4 bytes, each 0–9 | yes (read and ignore) |
+| 4 | `DECLINED` | empty | handle as failure |
+| 5 | `INTERNAL_ERROR` | — | handle as failure |
+| 6 | `GUEST_LIMIT_REACHED` | — | handle as failure |
+| 7 | `SESSION_TOKEN` | token bytes | no: not used on `tcp://` |
+| 8 | `TRANSPORT_ACCEPTANCE` | 1 byte, `01` = accepted | yes |
+| 9 | `TRANSPORT_INDEX` | int32 | yes |
+| 10 | `WIRE_EXIST` | 1 byte | yes |
+| 11 | `CURRENT_CONFIRMED_FRAME_ACK` | int32 | no sender found |
+| 12 | `FORCE_TERMINATE_WIRE` | int32 reason | close on receipt |
+| 13 | `PRE_PROTOCOL_MESSAGE` | `PreProtocolMessage` | no |
+
+Example frames, **before** compression:
+
+| Frame | Bytes |
+|---|---|
+| ping | `00 00 00 00` |
+| `TRANSPORT_INDEX` = 0 | `00 00 00 0C` `FF FF FF FF` `00 00 00 09` `00 00 00 00` |
+| `TRANSPORT_ACCEPTANCE` = accepted | `00 00 00 09` `FF FF FF FF` `00 00 00 08` `01` |
+| `WIRE_EXIST` = no | `00 00 00 09` `FF FF FF FF` `00 00 00 0A` `00` |
+| `JOIN_PIN` 4 2 7 1 | `00 00 00 0C` `FF FF FF FF` `00 00 00 03` `04 02 07 01` |
+| `ACCEPTED`, no offer | `00 00 00 08` `FF FF FF FF` `00 00 00 00` |
+| message, seq 1, nothing received yet | `<int32 8+P>` `00 00 00 01` `00 00 00 00` `<P bytes of rd payload>` |
+
+### Order of steps
+
+Seen in `TransportCreatorEngineImpl`, `WireReuseUtil`, and the bytecode of `SecureWireOverStreamTransport$runConnectionFlow$1` (Fernflower could not decompile it). The backend's side is Inferred from what the client expects.
+
+```
+Client                                              Backend
+  │── TCP connect ───────────────────────────────────►│
+  │── TLS 1.3 handshake (client certificate) ────────►│   fp check on the client side
+  │   … from here on: DEFLATE + frames; client pings every 1 s …
+  │── TRANSPORT_INDEX (0) ───────────────────────────►│
+  │◄─────────────────────────── TRANSPORT_ACCEPTANCE (1) │   client waits up to 4 s
+  │── WIRE_EXIST (0) ────────────────────────────────►│
+  │◄──────────────────────────────────── WIRE_EXIST (x) │
+  │◄────────────────────────────────── JOIN_PIN (4 digits)
+  │◄──────────────────────── ACCEPTED (maybe an offer) │   PASSWORD_REQUIRED → password flow
+  │── ACCEPTED (empty) ──────────────────────────────►│
+  │   connected: rd messages as message frames, both ways
+```
+
+Rules for message frames (seen in `ServiceMessageProcessor` bytecode):
+
+- Our `seq` starts at **1** and goes up by one per message frame we send. `lastReceivedSeq` is the highest `seq` we have accepted from the backend, starting at **0**.
+- Acks ride on every message frame; there is no separate ack frame. When the backend's `lastReceivedSeq` arrives, drop our stored frames up to it.
+- Incoming `seq == last + 1`: accept. `seq > last + 1`: accept (logged as a gap). `seq ≤ last`: duplicate, drop.
+- The backend keeps our unconfirmed frames, up to 100 MiB (`rdct.wire.storage.wire.buffer.size.bytes`). So we must send message frames now and then, not only read. rd normally does (Inferred).
+- Pings every 1 s (`rdct.wire.send.pings.interval.seconds`). If nothing arrives for 15 s (`rdct.wire.timeout.pings`), the client gives up on the connection.
+
+Needed for a first working connection: everything in the diagram above, plus sequence numbers and pings.
+
+Can be skipped for now:
+- session token (no token handler on `tcp://`), password flow, negotiation;
+- wire reuse and resending after a reconnect: always send `WIRE_EXIST` = 0 and start a fresh wire;
+- QUIC, STUN/TURN, WebSocket and proxy transports, telemetry.
+
+### Where rd starts
+
+The wire (`SecureWireOverStreamTransport`, an rd `IWire`) is handed to:
+
+```kotlin
+Protocol("ThinClient", Serializers(IdeRootMarshallersProvider), Identities(IdKind.Client), scheduler, wire, lifetime)
+```
+
+Each message frame's payload is one rd message: `RdId (int64) || message context || body`. The receiver reads the `RdId` and passes the rest to rd's `MessageBroker.dispatch`. The context and body formats belong to the rd library itself, which we reuse, so we don't need to reimplement them. Seen in `ThinClientConnectionFactory.createConnection` bytecode.
+
+## What runs on top of rd
+
+### Generated rd models
+
+rd keeps models in sync: properties, maps, signals and calls whose values match on both sides. The models are generated code, shipped in two jars:
+
+| Jar | Classes | Main packages |
+|---|---|---|
+| `lib/intellij.platform.split.protocol.jar` | 1,164 | `com.jetbrains.codeWithMe.model` (640), `com.jetbrains.rd.ide.model` (513) |
+| `lib/intellij.rd.ide.model.generated.jar` | 3,355 | `com.jetbrains.rd.ide.model`, `com.jetbrains.ide.model.uiautomation`, … |
+
+Example models: `ProjectViewModel`, `EditorTabsModel`, `SearchEverywhereModel`, `DebuggerModel`, `NavigationBarModel`, `RemoteSettingsModel`, `ReworkedTerminalModel`.
+
+Types sent polymorphically go on the wire as a 64-bit id. The jars map ids to classes in resource files, e.g. `intellij.platform.split.protocol.marshallers/splitMarshallers.txt` (409 lines) and `marshallers/marshallers.txt` (1,330 lines):
+
+```
+-1127600733612500137:com.jetbrains.codeWithMe.model.RdTreeFocusNode
+-1162693106004481801:com.jetbrains.codeWithMe.model.LineBreakpointTypeModel
+```
+
+`Serializers(DefaultSplitMarshallersProvider.INSTANCE)` loads classes on demand through these files, so **the resource files must ship with the dexed classes**. Each root model also has a `serializationHash` (e.g. `LuxModel.serializationHash = 5589913469715632981`). Both sides must use the same build, which is another reason to reuse the generated jars of the exact backend build (Inferred).
+
+### Fleet RPC, carried by one rd model
+
+The newer API that JetBrains recommends for plugins (RPC interfaces plus Rhizome, a database that syncs state between frontend and backend) does not open its own connection. Seen in `com.intellij.platform.rpc.split.RdTransportFactory` (`plugins/remdev-plugin/lib/modules/intellij.platform.rpc.split.jar`):
+
+- the rd model `FleetRpcModel` (an rd extension model) has two signals, `incoming` and `outgoing`, of type `FleetTransportMessage`;
+- `FleetTransportMessage` has one field, `message: String`;
+- that string is `fleet.rpc.core.TransportMessage` serialized to **JSON** with kotlinx.serialization (`TransportMessage.Companion.deserialize(String)` uses `Json.Default`).
+
+So a client that speaks rd can also speak Fleet RPC by sending and receiving JSON strings on those two signals. The RPC interfaces themselves (`@Rpc` Kotlin interfaces) are defined per feature. Completion is one example: `RpcCompletionRequest` in `intellij.platform.completion.frontend`.
+
+### Lux: backend-painted Swing
+
+Any Swing UI that has no frontend version is painted on the backend and sent as drawing commands. Seen in the `com.jetbrains.rd.ide.model.Lx*` classes:
+
+- `LuxModel` holds a map of components, `components: Map<Int, LxAbstractComponent>`.
+- Each component has `graphics`, `size`, `position`, `visible`, `cursor`, an `events` signal, and a `requestRepaint` call.
+- Drawing commands: `LxDrawShapeCommand`, `LxFillShapeCommand`, `LxDrawTextCommand`, `LxDrawGlyphCommand`, `LxDrawImageCommand`, `LxCopyAreaCommand`, `LxClearStateCommand`.
+- State changes: clip, transform, font, paint, stroke, composite, anti-aliasing.
+- Shapes: line, rectangle, rounded rectangle, ellipse, arc, polygon, path, quad and cubic curves.
+- Paints: colour, linear, radial and texture paints.
+- Images: `LxPngImageContent`, plus image caching with `LxCachedImage` and `LxDiffImage`.
+- Windows: `LxFrame`, `LxDialog`, `LxWindow`, popups.
+- Input sent back: `LxMouseEvent`, `LxMouseWheelEvent`, `LxKeyEvent`, `LxInputMethodEvent`, `LxWindowEvent`.
+
+This is how a dialog or tool window from any backend plugin can appear on the frontend. For the Android client, drawing `Lx*` commands on an Android `Canvas` and sending touch and key events back would show any backend UI without per-feature work (Inferred; not tried).
+
+## Plugins
+
+From the [JetBrains split-mode docs](https://plugins.jetbrains.com/docs/intellij/split-mode-and-remote-development.html), the [RPC docs](https://plugins.jetbrains.com/docs/intellij/remote-procedure-calls.html) and the [plugin manager docs](https://plugins.jetbrains.com/docs/intellij/plugin-management-in-split-mode.html), matched against the jars above:
+
+| Kind of plugin | Where it runs | What reaches the frontend |
+|---|---|---|
+| Not split (most Marketplace plugins) | backend only | Inspections, intentions, completion, highlighting, run configurations: through the platform's own rd models and RPC. The plugin's own Swing UI: through Lux, as painted pixels (can feel slow). |
+| Split (modules `shared`, `frontend`, `backend`) | frontend module inside JetBrains Client, backend module on the backend | The frontend module calls the backend module through RPC interfaces defined in `shared`, e.g. `ChatRepositoryRpcApi.getInstance().sendMessage(projectId, text)`; data is serialized with kotlinx.serialization. The plugin manager installs each part where its dependencies are met. |
+
+For the Android client: plugins that aren't split work fully except for their custom UI, which needs Lux. **Frontend modules of split plugins won't run**: they are IntelliJ/Swing code written to run inside JetBrains Client. Their backend halves still run.
+
+## Running rd and the models on Android
+
+Code and a script to reproduce all of this: [`client/spikes/rd-on-art/`](../client/spikes/rd-on-art/). Run it with:
+
+```sh
+CLIENT_LIB="$HOME/Library/Caches/JetBrains/JetBrainsClientDist/JetBrainsClient-263.7307.200-aarch64.sit-89c5c2813f.ide.d/IntelliJ IDEA.app/Contents/lib" \
+KOTLIN_STDLIB=<path to kotlin-stdlib-2.3.21.jar> \
+JAVA_HOME=<JDK 17+> \
+ADB_SERIAL=192.168.0.105:5555 \
+client/spikes/rd-on-art/run-on-phone.sh
+```
+
+It runs the programs with `app_process` as the ADB shell user, in `/data/local/tmp`. It does not touch Termux or the backend.
+
+### What each jar depends on
+
+`jdeps -verbose:package`, ignoring `java.lang/util/io/nio/net/time/math/text/security`, Kotlin and the jar's own packages:
+
+| Jar | Class version | Other dependencies | Android? |
+|---|---|---|---|
+| `intellij.libraries.rd.core.jar` | 61 (Java 17) | `org.apache.commons.logging` (not loaded in our tests) | yes |
+| `intellij.libraries.rd.framework.jar` | 61 | `sun.misc.Unsafe` (only `UnsafeBuffer`), `javax.management.openmbean.InvalidOpenTypeException` (only `CustomExtScheduler`, not used by us) | after patching `UnsafeBuffer` |
+| `intellij.libraries.rd.text.jar` | 61 | none | yes |
+| `intellij.platform.split.protocol.jar` | **69 (Java 25)** | rd, `intellij.rd.ide.model.generated`, `org.jetbrains.annotations` | after lowering the class version |
+| `intellij.rd.ide.model.generated.jar` | **69** | rd, rd-text; `com.intellij.openapi.Disposable` / `ExtensionPointName` only in `AggregatedMarshallersProvider` and `LazyAggregatedMarshallersProvider` (not needed: we use `DefaultSplitMarshallersProvider`) | after lowering the class version |
+| `plugins/remdev-plugin/lib/modules/intellij.platform.split.connection.jar` (the connection) | 69 | ~60 IntelliJ platform packages, `java.awt`, `javax.swing`, JNA, ice4j, Guava, OpenTelemetry, tlschannel | **no**: reimplement |
+
+### Problem 1: `sun.misc.Unsafe` on ART
+
+rd's `UnsafeBuffer` (the buffer every rd message is written into) calls 18 `Unsafe` methods and reads 15 `Unsafe` constants. `UnsafeProbe` on the phone:
+
+| Used by `UnsafeBuffer` | On ART (Android 17) |
+|---|---|
+| `allocateMemory(long)`, `freeMemory(long)` | present |
+| `reallocateMemory(long,long)` | **missing** |
+| `copyMemory(Object,long,Object,long,long)` (called 22 times) | **missing** |
+| `get/put{Byte,Short,Char,Int,Long,Float,Double}(Object,long)` | present, but a `null` base is not treated as a raw address as it is on HotSpot (Inferred; the shim avoids relying on it) |
+| constants `ARRAY_*_BASE_OFFSET` (8 array types) and `ARRAY_*_INDEX_SCALE` (7, all but `BYTE`) | **missing** (`NoSuchFieldError: ARRAY_CHAR_BASE_OFFSET`) |
+
+The unpatched failure on the phone:
+
+```
+java.lang.NoSuchMethodError: No virtual method reallocateMemory(JJ)J in class Lsun/misc/Unsafe;
+    at com.jetbrains.rd.framework.UnsafeBuffer.reallocateMemory(UnsafeBuffer.kt:52)
+```
+
+Fix, in the spike: `RewriteUnsafeCalls` (ASM, using the copy shipped with JetBrains Client) rewrites `UnsafeBuffer.class`. All 105 `Unsafe` references become calls and field reads on `com.jetbrains.rd.framework.ArtUnsafeShim`:
+
+- `reallocateMemory` = allocate, copy, free; the shim tracks allocation sizes.
+- `copyMemory` copies byte by byte.
+- `get*/put*` with a `null` base use ART's address-only methods.
+- The `ARRAY_*` constants are computed with `arrayBaseOffset` / `arrayIndexScale`.
+
+`UnsafeBuffer` is created only by `AbstractBufferKt.createAbstractBuffer` and `SocketWire.Base`, and no other rd class uses `Unsafe`, so no other class needs changes. The byte-by-byte copy is the known slow spot (marked `ponytail:` in the shim). If profiling shows it matters, replace it with bulk copies, or with a `UnsafeBuffer` written on `ByteBuffer`.
+
+### Problem 2: class file version 69
+
+```
+Error in intellij.platform.split.protocol.jar:com/intellij/platform/split/protocol/DefaultSplitMarshallersProvider.class:
+java.lang.IllegalArgumentException: Unsupported class file major version 69
+```
+
+D8 from build-tools 35.0.0 (D8 8.6.2) rejects class file version 69. `downgrade-class-version.py` rewrites the version field of every class file from 69 to 61. The Kotlin compiler's output doesn't use anything newer, and D8 then converts all 4,519 classes without errors. The result is one 7.6 MB `classes.dex` for the two model jars. The only messages are warnings that D8 can't parse newer Kotlin metadata, which only matters for Kotlin reflection. A newer D8 that reads version 69 would avoid the rewrite.
+
+### Problem 3: resource files
+
+D8 drops non-class files. `splitMarshallers.txt` and `marshallers.txt` have to be added back next to the dex (in an APK, as Java resources). Without them, polymorphic reads can't find classes.
+
+### Gotcha: loopback is IPv6 on Android
+
+`InetAddress.getLoopbackAddress()` is `::1` on Android, while `SocketWire.Server` listens on `127.0.0.1`. The first phone run therefore failed with `ECONNREFUSED`. Use `InetAddress.getByName("127.0.0.1")`. This was only a test issue, but the same thing will matter when connecting through an `adb forward` or `ssh -L`.
+
+### Results on the phone
+
+Output of `run-on-phone.sh` on 2026-11-15 (Samsung SM-S926B, Android 17):
+
+```
+== CryptoProbe
+SHA3-256: MISSING
+TLSv1.3: present (AndroidOpenSSL), default protocols TLSv1.2,TLSv1.3
+raw DEFLATE + SYNC_FLUSH: OK (22 bytes, ends 00 00 FF FF)
+security providers: AndroidOpenSSL,CertPathProvider,BC,HarmonyJSSE
+== RdOnAndroidCheck
+UnsafeBuffer round trip: OK
+SocketWire loopback on port 42111: OK (hello from the client)
+ALL CHECKS PASSED
+== ModelsOnAndroidCheck
+Generated marshaller round trip: OK (12.5, -3.0)
+Polymorphic read via splitMarshallers.txt: OK (28 bytes on the wire)
+LuxModel.serializationHash = 5589913469715632981
+ALL MODEL CHECKS PASSED
+```
+
+What each check covers:
+
+| Program | Checks |
+|---|---|
+| `UnsafeProbe` | which `Unsafe` methods `UnsafeBuffer` needs exist on ART (table above) |
+| `CryptoProbe` | `SHA3-256`, TLS 1.3, raw DEFLATE with sync flush |
+| `RdOnAndroidCheck` | patched `UnsafeBuffer` round-trips ints, longs, doubles, strings and arrays. Two rd `Protocol`s connected by `SocketWire` over loopback deliver an `RdSignal<String>` value. |
+| `ModelsOnAndroidCheck` | a generated model class (`LxPoint`) round-trips through its marshaller. A polymorphic read with fresh `Serializers(DefaultSplitMarshallersProvider.INSTANCE)` finds the class via `splitMarshallers.txt`. `LuxModel` initializes. |
+
+Android's built-in BouncyCastle (`BC` above) has no SHA3, so the client needs its own BouncyCastle (`bcprov` for SHA3-256, `bcpkix` to build the client certificate).
+
+## Plan for the client that follows from this
+
+1. **Reuse:** rd-core, rd-framework (with `UnsafeBuffer` patched), rd-text, and the two generated model jars of the **exact** backend build (class version lowered, resource files kept). Plus kotlin-stdlib and kotlinx-coroutines.
+2. **Write ourselves:** the connection layer (TLS with client certificate and fingerprint check → DEFLATE → frames → handshake → sequence numbers → `IWire`). It's small and fully described above.
+3. **Then** bind the root models over that wire, starting with what the editor needs, and render Lux for everything else.
+
+## Open questions
+
+| Question | How to answer it |
+|---|---|
+| How does the backend check the client certificate? Is `PSEUDONYM` = `jt` enough, or does it need the product-info extension `1.3.6.1.4.1.57712.78.1`? | Live attempt against the phone; the backend log (`~/.cache/JetBrains/IntelliJIdea2026.3/log/idea.log`) should give the reason for a rejection. Or decompile the backend side (`RdServerDirectConnectionsListener` in the backend jars). |
+| What does the backend put in its `ACCEPTED` frame, and does it accept an empty one from us? | Same live attempt. |
+| Which rd models does the client have to bind first, and in what order (root model, `serializationHash` checks)? | Read `ThinClientConnectionFactory` / client startup, or log rd traffic from the real JetBrains Client (rd has protocol logging). |
+| rd message context bytes | rd library source (JetBrains/rd, public), or capture. Not needed while we reuse the library. |
+| Is the byte-by-byte `copyMemory` shim fast enough? | Measure once real traffic flows. |
+| Does a newer D8 accept class version 69 directly? | Try the latest build-tools / R8. |
+
+## Sources
+
+All from JetBrains Client 263.7307.200 on the Mac:
+`~/Library/Caches/JetBrains/JetBrainsClientDist/JetBrainsClient-263.7307.200-aarch64.sit-89c5c2813f.ide.d/IntelliJ IDEA.app/Contents/`
+
+| Jar | Read for |
+|---|---|
+| `lib/intellij.libraries.rd.{core,framework,text}.jar` | rd library; `javap`, `jdeps`, runs on the phone |
+| `lib/intellij.platform.split.protocol.jar`, `lib/intellij.rd.ide.model.generated.jar` | generated models, marshaller lists, Lux and Fleet RPC models |
+| `plugins/remdev-plugin/lib/modules/intellij.platform.split.connection.jar` | transport, TLS, compression, frames, wire (decompiled with Fernflower from IntelliJ's `java-decompiler.jar`) |
+| frontend and base split-connection modules, `lib/intellij.rd.platform.jar` | client certificate, trust manager, fingerprint, `tcp://` handler, `ThinClientConnectionFactory` (bytecode) |
+| `plugins/remdev-plugin/lib/modules/intellij.platform.rpc.split.jar` | Fleet RPC over rd (`RdTransportFactory`, `FleetRdTransportBridge`) |
+| `lib/fleet.rpc.jar` | `TransportMessage` JSON serialization |
+
+Class and method names are given above rather than line numbers, because Fernflower's line numbers change between runs and versions.

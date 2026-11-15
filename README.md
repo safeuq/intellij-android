@@ -8,7 +8,7 @@ Running IntelliJ IDEA's backend natively on Android, with no Linux VM or proot, 
 |---|---|
 | `jbr/`: JetBrains Runtime 25 built for Android (bionic), as a Termux package | Works. IntelliJ IDEA 2026.3's remote-dev server runs on it in Termux; JetBrains Client on another machine edits, highlights and completes against it |
 | `backend/`: running IntelliJ on the phone | Manual commands below; start script and a bionic `fsnotifier` to come |
-| `client/`: native Android frontend | Not started |
+| `client/`: native Android frontend | Protocol research done (`docs/split-protocol.md`): JetBrains' rd library and the generated protocol models run on the phone with one patched class; the connection layer is documented and still to be written |
 
 Why a custom JBR: IntelliJ's remote-dev server needs JetBrains Runtime (`com.jetbrains.JBR.isGraphicsUtilsSupported()` must be `true`), and the JBR that ships with IntelliJ is built for glibc, which Android doesn't have.
 
@@ -16,6 +16,7 @@ Why a custom JBR: IntelliJ's remote-dev server needs JetBrains Runtime (`com.jet
 
 ```
 docs/jbr-for-android.md        plan and dated log of the whole build: every failure and fix
+docs/split-protocol.md         how JetBrains Client talks to the backend, and running rd on Android
 jbr/
   termux-package/jbr-25/       Termux recipe: build.sh, Termux's patches (00NN), ours (10NN)
   PATCHES.md                   what each patch does and why
@@ -24,6 +25,7 @@ jbr/
   scripts/find-unresolved-symbols.sh
   docker/tar-rosetta-wrapper.sh
 backend/checks/                small Java checks used on the phone
+client/spikes/rd-on-art/       checks that rd and the protocol models run on Android ART
 ```
 
 No upstream source is committed. `jbr/scripts/build.sh` fetches termux-packages at a pinned commit into `work/`, and the recipe downloads the JBR source tarball, checked against its SHA-256.
