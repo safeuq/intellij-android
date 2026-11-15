@@ -260,5 +260,6 @@ Findings:
 * **Typing over a selection is two document changes**: delete the selection, then insert, each with its own version. One change `change(208, -");", +"x")` with v0→1 is answered with `change(208, -");", +"")` v0→1 and `change(208, +"x")` v1→2, which counts as different.
 * The starting document and editor versions come from the first backend patch (`reset(260 chars, v0)` and a caret snapshot). After that, trust the backend's `updatedItemVersions` over our own count.
 * Smart typing (closing brackets, smart backspace, auto-indent beyond copying the indent) is not done locally. The rollback-and-follow path handles it, so the text is always right; the text and caret change again when the answer arrives.
+* Highlighters are not resent when the text around them changes: the backend expects the client to move them the way IntelliJ moves a non-greedy range marker. Text inserted exactly at a highlighter's end stays outside it; text inserted exactly at its start moves it. Growing them instead (the first Android test, 2026-11-15) painted a whole new line in the colour of the `;` before it.
 * The document hash depends on the edit history, not only the text; `VersionHashesTest` holds recorded numbers.
 * cmux-cua's `type_text` sends select-all and delete before the text in our window, so drive typing tests with one `press_key` per character.

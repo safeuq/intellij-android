@@ -358,14 +358,10 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
     /** Keeps highlighter ranges in place over local edits until the backend sends fresh ones. */
     private fun shiftHighlights(documentId: RdDocumentId, edit: EditSession.TextEdit) {
         val highlights = documentHighlights[documentId] ?: return
-        val delta = edit.insertedLength - edit.removedLength
-        val editEnd = edit.offset + edit.removedLength
-        fun moved(position: Int) = when {
-            position >= editEnd -> position + delta
-            position > edit.offset -> edit.offset
-            else -> position
+        for ((key, highlight) in highlights.entries.toList()) {
+            val (start, end) = edit.shift(highlight.start, highlight.end)
+            highlights[key] = highlight.copy(start = start, end = end)
         }
-        for ((key, highlight) in highlights.entries.toList()) highlights[key] = highlight.copy(start = moved(highlight.start), end = moved(highlight.end))
     }
 
     private fun attachMarkup(markupLifetime: Lifetime, documentId: RdDocumentId, markup: RdMarkupModel, source: String) {

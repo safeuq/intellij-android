@@ -111,7 +111,29 @@ class EditSession(
     /** Called after every change of text or caret, with the change (offset, removed length, inserted length) if any. */
     private val changed: (TextEdit?) -> Unit,
 ) {
-    data class TextEdit(val offset: Int, val removedLength: Int, val insertedLength: Int)
+    data class TextEdit(val offset: Int, val removedLength: Int, val insertedLength: Int) {
+        /**
+         * Where the range [start]..[end] is after this edit, the way IntelliJ moves a non-greedy range marker (what the
+         * backend's highlighters are): text inserted exactly at the end stays outside the range, text inserted exactly
+         * at the start pushes the whole range right. Example: `;` at 209..210, Enter typed at 210 → `;` stays 209..210.
+         */
+        fun shift(start: Int, end: Int): Pair<Int, Int> {
+            val delta = insertedLength - removedLength
+            val editEnd = offset + removedLength
+            val newStart = when {
+                start >= editEnd -> start + delta
+                start > offset -> offset
+                else -> start
+            }
+            val newEnd = when {
+                end == start -> newStart
+                end > editEnd || (end == editEnd && removedLength > 0) -> end + delta
+                end > offset -> offset
+                else -> end
+            }
+            return newStart to maxOf(newStart, newEnd)
+        }
+    }
 
     /** A request the backend hasn't answered yet; [undoState] is the editor state before its local change. */
     private class Pending(val requestId: Long, val speculative: RdPatch, val undoState: Snapshot, val edit: TextEdit?)
