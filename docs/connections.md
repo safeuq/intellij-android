@@ -80,4 +80,4 @@ Termux setup the app needs (one time, done by the user):
 ## Open
 
 - Whether a backend can hand out a second token without restarting (for a second device). Until then: one client identity per backend run.
-- `intellij-backend` itself is not written yet (runtime session, next). Still to confirm: that the `active/` status file of a running backend has the join link (the `recent/` file of a stopped one doesn't). If it doesn't, `link` and `status` use IntelliJ's `remote-dev-server.sh status`, about 2 s instead of instant.
+- `intellij-backend` is written (`backend/termux/intellij-backend`, 2026-11-16) and tested on the phone over SSH; not yet through Termux's RUN_COMMAND. The `active/` status file of a running backend has `joinLink`, so `link` and `status` answer at once.

@@ -7,7 +7,7 @@ Running IntelliJ IDEA's backend natively on Android, with no Linux VM or proot, 
 | Part | State |
 |---|---|
 | `jbr/`: JetBrains Runtime 25 built for Android (bionic), as a Termux package | Works. IntelliJ IDEA 2026.3's remote-dev server runs on it in Termux; JetBrains Client on another machine edits, highlights and completes against it |
-| `backend/`: running IntelliJ on the phone | Manual commands below. IntelliJ's file watcher built for Android: `backend/fsnotifier/`. Start script to come |
+| `backend/`: running IntelliJ on the phone | Manual commands below. IntelliJ's file watcher built for Android: `backend/fsnotifier/`. Start script: `backend/termux/intellij-backend` |
 | `client/`: native Android frontend | Compose Multiplatform client, desktop (JVM) for now: our own connection layer; IntelliJ's Project tree and a read-only editor with the backend's full highlighting, in the Islands Dark look (`client/README.md`). Protocol notes: `docs/split-protocol.md`; look: `docs/intellij-look.md`. Typing and Android packaging are next |
 
 Why a custom JBR: IntelliJ's remote-dev server needs JetBrains Runtime (`com.jetbrains.JBR.isGraphicsUtilsSupported()` must be `true`), and the JBR that ships with IntelliJ is built for glibc, which Android doesn't have.
@@ -28,6 +28,7 @@ jbr/
   docker/tar-rosetta-wrapper.sh
 backend/checks/                small Java checks used on the phone
 backend/fsnotifier/            IntelliJ's file watcher built for Android: build.sh, our patch, README
+backend/termux/intellij-backend  start/stop/status/link for the backend in Termux (called by the app, see docs/connections.md)
 client/src/                    the Compose client: connection/ (TLS, frames, rd wire), session/ (rd models), ui/
 client/spikes/rd-on-art/       checks that rd and the protocol models run on Android ART
 client/spikes/session-capture/ summarizes an rd trace recorded from JetBrains Client
@@ -49,12 +50,24 @@ Result: `output/jbr-25_25.0.4.1_aarch64.deb`, and a log in `logs/`.
 
 ## Run IntelliJ's backend on the phone
 
-In Termux (aarch64):
+In Termux (aarch64), with the start script:
 
 ```sh
 apt install ./jbr-25_25.0.4.1_aarch64.deb          # installs to $PREFIX/lib/jvm/jbr-25
+pkg install jq
+install -m 755 backend/termux/intellij-backend $PREFIX/bin/   # copy it to the phone first
 
 # IntelliJ IDEA 2026.3, linux-aarch64 build, unpacked to ~/intellij/idea-IU-263.7307.200
+intellij-backend start ~/path/to/project      # prints the join link once ready; --lan listens on 0.0.0.0
+intellij-backend status                       # or: status --json, link
+intellij-backend stop
+```
+
+It finds the IntelliJ under `~/intellij/idea-*/` (or `$INTELLIJ_HOME`), sets `IDEA_JDK` and `REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0` itself, takes Termux's wake lock while the backend runs, and keeps the backend running after the shell or SSH session that started it ends. Logs: `~/.local/state/intellij-backend/`. Status comes from IntelliJ's own files in `~/.cache/JetBrains/RemoteDev/active/`. It refuses to start (exit `4`) while another IntelliJ runs with the same settings, e.g. the desktop IntelliJ.
+
+The same by hand:
+
+```sh
 export IDEA_JDK=$PREFIX/lib/jvm/jbr-25
 export REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0   # else the launcher swaps in the bundled glibc JBR
 ~/intellij/idea-IU-263.7307.200/bin/remote-dev-server.sh run ~/path/to/project \

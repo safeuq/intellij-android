@@ -1,0 +1,226 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Starts, stops and reports IntelliJ's remote-dev backend in Termux.
+#
+#   intellij-backend start <project> [--lan] [--port N]   start (or find) the backend; prints its join link
+#   intellij-backend link                                   prints the running backend's join link
+#   intellij-backend status [--json]                        running or not, project, port, join link
+#   intellij-backend stop                                   stops the running backend
+#
+# Exit codes: 0 ok, 1 failed, 2 usage, 3 not running, 4 another IntelliJ uses the same settings.
+#
+# The Android app calls this through Termux's RUN_COMMAND and over SSH, so the output and exit
+# codes are a contract: docs/connections.md. The state comes from IntelliJ's own status files in
+# ~/.cache/JetBrains/RemoteDev/active/ (one per running backend, named by its PID), the same files
+# JetBrains Gateway reads over SSH.
+#
+# IntelliJ install: $INTELLIJ_HOME, or the only ~/intellij/idea-*/ folder.
+
+set -euo pipefail
+shopt -s nullglob
+
+readonly TERMUX_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+readonly JBR_HOME="$TERMUX_PREFIX/lib/jvm/jbr-25"
+readonly STATUS_DIR="$HOME/.cache/JetBrains/RemoteDev/active"
+readonly LOG_DIR="$HOME/.local/state/intellij-backend"
+readonly DEFAULT_PORT=5990
+readonly START_TIMEOUT_SECONDS=180
+readonly STOP_TIMEOUT_SECONDS=60
+
+readonly EXIT_FAILED=1
+readonly EXIT_USAGE=2
+readonly EXIT_NOT_RUNNING=3
+readonly EXIT_CONFLICT=4
+
+fail() {
+	local -r exit_code="$1"
+	shift
+	echo "intellij-backend: $*" >&2
+	exit "$exit_code"
+}
+
+usage() {
+	sed -n '4,7s/^# \{0,1\}//p' "$0" >&2
+	exit "$EXIT_USAGE"
+}
+
+intellij_launcher() {
+	local intellij_home="${INTELLIJ_HOME:-}"
+	if [[ -z "$intellij_home" ]]; then
+		local -a candidates=("$HOME"/intellij/idea-*/)
+		if [[ ${#candidates[@]} -ne 1 ]]; then
+			fail "$EXIT_FAILED" "found ${#candidates[@]} IntelliJ installs under ~/intellij; set INTELLIJ_HOME to one"
+		fi
+		intellij_home="${candidates[0]%/}"
+	fi
+	local -r launcher="$intellij_home/bin/remote-dev-server.sh"
+	[[ -x "$launcher" ]] || fail "$EXIT_FAILED" "not an IntelliJ install (no bin/remote-dev-server.sh): $intellij_home"
+	echo "$launcher"
+}
+
+# Prints the status file of the running backend, if any. Files whose process is gone (a crash
+# leaves them behind) don't count.
+running_status_file() {
+	local status_file
+	for status_file in "$STATUS_DIR"/*; do
+		if [[ -d "/proc/$(basename "$status_file")" ]] && jq -e '.joinLink' "$status_file" >/dev/null 2>&1; then
+			echo "$status_file"
+			return
+		fi
+	done
+}
+
+join_link_of() {
+	jq -r '.joinLink' "$1"
+}
+
+project_of() {
+	jq -r '.gatewayLink | capture("projectPath=(?<path>[^&]+)").path | @urid' "$1"
+}
+
+# Any IntelliJ JVM: a backend, or the desktop IntelliJ in XFCE. They share the config and
+# system folders, so only one can run.
+other_intellij_pid() {
+	pgrep -f 'com\.intellij\.idea\.Main' | head -n 1 || true
+}
+
+command_start() {
+	local project="" listen_address="127.0.0.1" port="$DEFAULT_PORT"
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--lan) listen_address="0.0.0.0" ;;
+			--port)
+				[[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || fail "$EXIT_USAGE" "--port needs a number"
+				port="$2"
+				shift
+				;;
+			-*) usage ;;
+			*)
+				[[ -z "$project" ]] || usage
+				project="$1"
+				;;
+		esac
+		shift
+	done
+	[[ -n "$project" ]] || usage
+	[[ -d "$project" ]] || fail "$EXIT_FAILED" "project folder not found: $project"
+	project="$(realpath "$project")"
+	[[ -x "$JBR_HOME/bin/java" ]] || fail "$EXIT_FAILED" "jbr-25 is not installed ($JBR_HOME)"
+	local -r launcher="$(intellij_launcher)"
+
+	local status_file
+	status_file="$(running_status_file)"
+	if [[ -n "$status_file" ]]; then
+		local -r running_project="$(project_of "$status_file")"
+		if [[ "$running_project" == "$project" ]]; then
+			join_link_of "$status_file"
+			return
+		fi
+		fail "$EXIT_CONFLICT" "a backend for $running_project is running; stop it first"
+	fi
+	local -r other_pid="$(other_intellij_pid)"
+	[[ -z "$other_pid" ]] || fail "$EXIT_CONFLICT" "another IntelliJ is running (pid $other_pid), e.g. the desktop IntelliJ"
+
+	mkdir -p "$LOG_DIR"
+	local -r log_file="$LOG_DIR/backend-$(date +%Y%m%d-%H%M%S).log"
+	# Keeps Android from suspending Termux while the screen is off.
+	termux-wake-lock 2>/dev/null || true
+	# setsid: its own session, so it outlives the SSH session or Termux command that started it.
+	IDEA_JDK="$JBR_HOME" REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0 \
+		setsid "$launcher" run "$project" --listenOn "$listen_address" --port "$port" \
+		</dev/null >"$log_file" 2>&1 &
+	local -r launcher_pid=$!
+
+	local waited_seconds=0
+	while [[ $waited_seconds -lt $START_TIMEOUT_SECONDS ]]; do
+		status_file="$(running_status_file)"
+		if [[ -n "$status_file" && "$(project_of "$status_file")" == "$project" ]]; then
+			join_link_of "$status_file"
+			return
+		fi
+		if ! kill -0 "$launcher_pid" 2>/dev/null; then
+			tail -n 20 "$log_file" >&2
+			fail "$EXIT_FAILED" "the backend exited during startup; log: $log_file"
+		fi
+		sleep 2
+		waited_seconds=$((waited_seconds + 2))
+	done
+	# Nothing half-started is left behind.
+	command_stop >/dev/null 2>&1 || true
+	kill "$launcher_pid" 2>/dev/null || true
+	fail "$EXIT_FAILED" "no join link after ${START_TIMEOUT_SECONDS}s; stopped it. Log: $log_file"
+}
+
+command_link() {
+	[[ $# -eq 0 ]] || usage
+	local -r status_file="$(running_status_file)"
+	[[ -n "$status_file" ]] || fail "$EXIT_NOT_RUNNING" "no backend is running"
+	join_link_of "$status_file"
+}
+
+command_status() {
+	local json=false
+	case "${1:-}" in
+		--json) json=true ;;
+		"") ;;
+		*) usage ;;
+	esac
+	local -r status_file="$(running_status_file)"
+	if [[ -z "$status_file" ]]; then
+		if $json; then echo '{"running":false}'; else echo "not running"; fi
+		return
+	fi
+	local -r join_link="$(join_link_of "$status_file")"
+	local -r project="$(project_of "$status_file")"
+	# tcp://127.0.0.1:5990#jt=… → 127.0.0.1, 5990
+	[[ "$join_link" =~ ^[a-z-]+://([^:/#]+):([0-9]+) ]] || fail "$EXIT_FAILED" "unexpected join link in $status_file"
+	local -r listen_address="${BASH_REMATCH[1]}" port="${BASH_REMATCH[2]}"
+	if $json; then
+		jq -cn \
+			--arg project "$project" \
+			--argjson port "$port" \
+			--arg listenOn "$listen_address" \
+			--arg joinLink "$join_link" \
+			'{running: true, project: $project, port: $port, listenOn: $listenOn, joinLink: $joinLink}'
+	else
+		echo "running: $project on $listen_address:$port (pid $(basename "$status_file"))"
+		echo "$join_link"
+	fi
+}
+
+command_stop() {
+	[[ $# -eq 0 ]] || usage
+	local -r status_file="$(running_status_file)"
+	if [[ -n "$status_file" ]]; then
+		local -r backend_pid="$(basename "$status_file")"
+		# IntelliJ's own stop: asks the backend to exit cleanly.
+		"$(intellij_launcher)" stop "$(project_of "$status_file")" >/dev/null 2>&1 || true
+		local waited_seconds=0
+		while [[ -d "/proc/$backend_pid" && $waited_seconds -lt $STOP_TIMEOUT_SECONDS ]]; do
+			sleep 1
+			waited_seconds=$((waited_seconds + 1))
+		done
+		if [[ -d "/proc/$backend_pid" ]]; then
+			kill "$backend_pid" 2>/dev/null || true
+			sleep 5
+			[[ ! -d "/proc/$backend_pid" ]] || fail "$EXIT_FAILED" "backend (pid $backend_pid) did not stop"
+		fi
+	fi
+	termux-wake-unlock 2>/dev/null || true
+}
+
+main() {
+	command -v jq >/dev/null || fail "$EXIT_FAILED" "jq is required: pkg install jq"
+	[[ $# -ge 1 ]] || usage
+	local -r command="$1"
+	shift
+	case "$command" in
+		start) command_start "$@" ;;
+		link) command_link "$@" ;;
+		status) command_status "$@" ;;
+		stop) command_stop "$@" ;;
+		-h | --help | help) usage ;;
+		*) usage ;;
+	esac
+}
+
+main "$@"
