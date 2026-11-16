@@ -117,13 +117,13 @@ release_backend_resources() {
 	termux-wake-unlock 2>/dev/null || true
 }
 
-# Runs detached next to the backend: when the backend exits for any reason (stop, crash, killed
-# by Android), the notification and the wake lock go with it.
-command_watch() {
-	local -r backend_pid="$1"
-	while [[ -d "/proc/$backend_pid" ]]; do
-		sleep 5
-	done
+# The backend's parent: runs IntelliJ's launcher, waits for it, then removes the notification and
+# releases the wake lock. The launcher outlives IntelliJ's own restarts (exit code 88 starts a new
+# JVM) and exits only when the backend is gone for good: stop, crash, or killed by Android.
+command_run() {
+	local -r launcher="$1"
+	shift
+	"$launcher" run "$@" || true
 	release_backend_resources
 }
 
@@ -169,7 +169,7 @@ command_start() {
 	# Keeps Android from suspending Termux while the screen is off.
 	termux-wake-lock 2>/dev/null || true
 	# setsid: its own session, so it outlives the SSH session or Termux command that started it.
-	setsid "$launcher" run "$project" --listenOn "$listen_address" --port "$port" \
+	setsid "$0" internal-run "$launcher" "$project" --listenOn "$listen_address" --port "$port" \
 		</dev/null >"$log_file" 2>&1 &
 	local -r launcher_pid=$!
 
@@ -178,7 +178,6 @@ command_start() {
 		status_file="$(running_status_file)"
 		if [[ -n "$status_file" && "$(project_of "$status_file")" == "$project" ]]; then
 			show_notification "$project" "$listen_address:$port"
-			setsid "$0" watch "$(basename "$status_file")" </dev/null >/dev/null 2>&1 &
 			join_link_of "$status_file"
 			return
 		fi
@@ -191,7 +190,8 @@ command_start() {
 	done
 	# Nothing half-started is left behind.
 	command_stop >/dev/null 2>&1 || true
-	kill "$launcher_pid" 2>/dev/null || true
+	# The whole process group: our parent, IntelliJ's launcher and its JVM.
+	kill -- "-$launcher_pid" 2>/dev/null || true
 	fail "$EXIT_FAILED" "no join link after ${START_TIMEOUT_SECONDS}s; stopped it. Log: $log_file"
 }
 
@@ -270,8 +270,8 @@ main() {
 		link) command_link "$@" ;;
 		status) command_status "$@" ;;
 		stop) command_stop "$@" ;;
-		# internal: started by start, see command_watch
-		watch) command_watch "$@" ;;
+		# internal: started by start, see command_run
+		internal-run) command_run "$@" ;;
 		-h | --help | help) usage ;;
 		*) usage ;;
 	esac

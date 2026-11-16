@@ -69,7 +69,7 @@ The command is `intellij-backend`, at `$PREFIX/bin/intellij-backend` (`/data/dat
 | `status --json` | `{"running":true,"project":"/data/…/smoke","port":5990,"listenOn":"127.0.0.1","joinLink":"tcp://…"}` or `{"running":false}` | `0` |
 | `stop` | nothing | `0` (also when not running) |
 
-While a backend runs, Termux:API shows an ongoing notification "IntelliJ backend running" (`termux-notification --id intellij-backend`). Tapping it opens the app (`intellijandroid.client.android/.MainActivity`); its Stop button runs `intellij-backend stop`. A small watcher started by `start` removes it, and releases the wake lock, when the backend exits for any reason. So the app doesn't need its own notification for the backend.
+While a backend runs, Termux:API shows an ongoing notification "IntelliJ backend running" (`termux-notification --id intellij-backend`). Tapping it opens the app (`intellijandroid.client.android/.MainActivity`); its Stop button runs `intellij-backend stop`. `start` runs IntelliJ's launcher under a small parent (`intellij-backend internal-run`) that waits for it and then removes the notification and releases the wake lock. So that happens whenever the backend exits for good (stop, crash, killed by Android), and not on IntelliJ's own restarts (exit code 88), which the launcher handles in a loop. So the app doesn't need its own notification for the backend.
 
 Without `--lan` the backend listens on `127.0.0.1` only (reachable from this phone and over SSH). With `--lan` it listens on `0.0.0.0`.
 
