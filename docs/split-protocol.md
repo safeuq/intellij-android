@@ -569,6 +569,8 @@ The Mac's IntelliJ IDEA (`~/Applications/IntelliJ IDEA.app`) is the same build, 
 
 - **It must not share folders with a running desktop IntelliJ.** On the first try, `remote-dev-server.sh` didn't start a backend: the launcher found the running IDE and handed it the command (`External instance command received` → `UnattendedHostUnavailableStarter`; the script printed `The command 'remoteDevHost' requires Remote Development backend`). `IDEA_PROPERTIES` with separate paths did **not** prevent this. Passing the paths as JVM options did: `IJ_JAVA_OPTIONS="-Didea.config.path=… -Didea.system.path=… -Didea.log.path=… -Didea.plugins.path=…"`. Check the first lines of the new `idea.log` before connecting. (The desktop IDE shut down normally a minute after that first try; there was no exit in the handed-over command, but the two may be related.)
 - **A fresh config doesn't trust the project.** The project open stops at a trust prompt that our client can't show yet. Set `REMOTE_DEV_TRUST_PROJECTS=1`, and `REMOTE_DEV_NON_INTERACTIVE=1`.
+- **Port 5990 may already be taken on the Mac.** While JetBrains Gateway on the Mac is connected to the phone's backend, Gateway itself listens on `127.0.0.1:5990` (its forward to the phone; `lsof -nP -iTCP:5990` shows `gateway`). The Mac backend then fails with `java.net.BindException: Address already in use` and prints no join link, and `adb reverse tcp:5990 tcp:5990` would send the emulator's app to the **phone's** backend through Gateway. Use another port (5991) for the Mac backend and its `adb reverse`. When this happened on 2026-11-16 the app had a stale link: its `fp` didn't match, so the TLS check closed the connection (`SSLHandshakeException: connection closed`) before any join token was sent, and Gateway's session stayed up.
+- **The backend writes the open file back on exit.** Edits made by a test client are saved when the backend stops, so the next run starts from the edited `Main.java`. The test script copies a saved original (`Main.java.original`) over `smoke/src/demo/Main.java` before each start.
 
 ```sh
 BACKEND=/path/to/scratch/mac-backend      # holds config/ system/ log/ plugins/ and the project
@@ -763,10 +765,12 @@ After that the session works as a new one: Project tree, editor, highlighting, t
 
 The desktop client stores its identity too when started with `CLIENT_IDENTITY=<file>` (see [`client.md`](client.md)).
 
+**A join token works once, and one client controls a backend.** Seen on the phone on 2026-11-16 (phone `idea.log`, UTC): 07:47:10 the app connected with `jt=4fd57122…`; 07:49:28 Gateway on the Mac connected with a fresh `jt`, the backend logged `Active controller connection has been detected. Terminate existing connection.` and sent the app `FORCE_TERMINATE_WIRE` (the client shows "Backend terminated the wire"); 07:49:40 the app came back with its stored `jt=4fd57122…` and got `Declining invalid token from root`. So a used token resumes only our own session, and only while no other client has taken over. The app's answer ([`connections.md`](connections.md), "What tapping an entry does"): a Termux entry first resumes with the stored link and identity; if refused, it asks `intellij-backend status --json` for the current link (it reads it from the backend, so it is unused) and `controllerConnected`, asks "Take over?" when another client is connected, and connects with a new identity. A session ended by `FORCE_TERMINATE_WIRE` shows "Another device took over this backend" with Take back.
+
 ### Not done yet
 
 - SSH history entries (the third kind in `connections.md`).
-- The Termux entries are built against the `intellij-backend` contract; the command doesn't exist yet, so they are untested.
+- The Termux entries' take-over path is built but not yet tried on the phone (it would drop the user's Gateway session).
 - No automatic reconnect: when the connection drops, the app goes back to the connect screen, and a tap on the history entry reconnects.
 - A history entry keeps the client's private key in the app's private storage. It is only useful with that backend's `jt`, until the backend restarts.
 

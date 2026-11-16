@@ -262,7 +262,8 @@ fun EditorView(file: EditorFile, scheme: EditorScheme, actions: EditorActions, m
             .focusable()
             .onPreviewKeyEvent { event -> event.type == KeyEventType.KeyDown && onKey(event) }
             .pointerInput(file.path, metrics) {
-                detectTapGestures(onPress = { position -> focusRequester.requestFocus(); moveTo(offsetAt(position), extend = false) })
+                // On tap, not on press: a swipe that starts on the editor (phone portrait) must not focus it and open the keyboard.
+                detectTapGestures(onTap = { position -> focusRequester.requestFocus(); moveTo(offsetAt(position), extend = false) })
             }
             .pointerInput(file.path, metrics) {
                 detectDragGestures(onDragStart = { position -> dragAnchor = offsetAt(position); moveTo(dragAnchor, extend = false) }) { change, _ ->

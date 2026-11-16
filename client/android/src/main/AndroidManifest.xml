@@ -12,12 +12,11 @@
     <application
         android:label="IntelliJ"
         android:theme="@android:style/Theme.Material.NoActionBar">
-        <!-- Landscape only for now: the Project tree is 300 dp wide, as in IntelliJ. A rotation or a hardware
+        <!-- Any orientation; the layout follows the window's shape (docs/mobile-layout.md). A rotation or a hardware
              keyboard change must not recreate the activity, because the session lives in it. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
             android:windowSoftInputMode="adjustResize|stateHidden">
             <intent-filter>
