@@ -48,9 +48,13 @@ data class ConnectScreenState(
     val message: String?,
     /** Set when Termux has no backend running: the project folder to offer `intellij-backend start` for. */
     val startProject: String?,
-    /** Set when Termux's backend has another client connected: asks before connecting ends that client's session. */
-    val takeOver: String?,
+    /** A yes/no question, e.g. "Take over?" when Termux's backend has another client. */
+    val question: Question?,
+    /** `intellij-backend start` is running for this project: shows Gateway's "Starting the remote IDE Backend" popup. */
+    val starting: String?,
 )
+
+class Question(val text: String, val confirm: String, val onConfirm: () -> Unit)
 
 enum class TermuxAccess { NOT_INSTALLED, NO_PERMISSION, READY }
 
@@ -66,8 +70,9 @@ class ConnectActions(
     val startInTermux: () -> Unit,
     val listFolders: (path: String, onResult: (Result<List<Termux.Folder>>) -> Unit) -> Unit,
     val refresh: () -> Unit,
-    val takeOver: () -> Unit,
-    val cancelTakeOver: () -> Unit,
+    val answerQuestion: () -> Unit,
+    val cancelQuestion: () -> Unit,
+    val cancelStart: () -> Unit,
 )
 
 /** Link prompt on the left; backends running on this phone and connections made before on the right (docs/connections.md). */
@@ -84,11 +89,11 @@ fun ConnectScreen(state: ConnectScreenState, actions: ConnectActions, fonts: Cli
             Button("Connect", styles, actions.connectLink)
             state.busy?.let { BasicText(it, style = styles.label) }
             state.message?.let { BasicText(it, style = styles.label.copy(color = IslandsDark.text)) }
-            state.takeOver?.let { question ->
-                BasicText(question, style = styles.label.copy(color = IslandsDark.text))
+            state.question?.let { question ->
+                BasicText(question.text, style = styles.label.copy(color = IslandsDark.text))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button("Take over", styles, actions.takeOver)
-                    Button("Cancel", styles, actions.cancelTakeOver)
+                    Button(question.confirm, styles, actions.answerQuestion)
+                    Button("Cancel", styles, actions.cancelQuestion)
                 }
             }
             state.startProject?.let { project ->
@@ -106,6 +111,7 @@ fun ConnectScreen(state: ConnectScreenState, actions: ConnectActions, fonts: Cli
                 }
             }
         }
+        state.starting?.let { project -> StartProgress(project, fonts, actions.cancelStart) }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 BasicText("On this phone", style = styles.heading, modifier = Modifier.weight(1f))

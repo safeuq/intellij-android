@@ -48,8 +48,10 @@ class MainActivity : ComponentActivity() {
     private var saved by mutableStateOf(emptyList<SavedConnection>())
     private var localBackends by mutableStateOf(emptyList<DiscoveredBackend>())
     private var termuxAccess by mutableStateOf(TermuxAccess.NOT_INSTALLED)
-    /** Termux's backend has another client connected (e.g. Gateway); connecting with this link ends that client's session. */
-    private var takeOver by mutableStateOf<TakeOver?>(null)
+    /** "Take over?" (another client has Termux's backend) or "Take back" (another client took it from us). */
+    private var question by mutableStateOf<Question?>(null)
+    /** `intellij-backend start` is running; its project. Cancel clears it, and the start's late result is then ignored. */
+    private var starting by mutableStateOf<String?>(null)
 
     private lateinit var history: ConnectionHistory
     private lateinit var termux: Termux
@@ -57,8 +59,6 @@ class MainActivity : ComponentActivity() {
 
     /** [resumed]: the saved link and identity of a Termux entry; if refused, the app asks Termux for a fresh link. */
     private class Attempt(val kind: ConnectionKind, val link: JoinLink, val text: String, val project: String?, val openFile: String?, val resumed: Boolean)
-
-    private class TakeOver(val joinLink: String, val project: String?)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,8 +87,9 @@ class MainActivity : ComponentActivity() {
             startInTermux = ::startInTermux,
             listFolders = { path, onResult -> termux.listFolders(path, onResult) },
             refresh = ::refresh,
-            takeOver = { takeOver?.let { pending -> connectTermux(pending.joinLink, pending.project) } },
-            cancelTakeOver = { takeOver = null },
+            answerQuestion = { question?.onConfirm?.invoke() },
+            cancelQuestion = { question = null },
+            cancelStart = ::cancelStart,
         )
 
         setContent {
@@ -97,7 +98,7 @@ class MainActivity : ComponentActivity() {
                     val current = session
                     if (current == null) {
                         LaunchedEffect(Unit) { refresh() }
-                        ConnectScreen(ConnectScreenState(link, file, localBackends, saved, termuxAccess, busy, message, startProject, takeOverQuestion()), actions, fonts)
+                        ConnectScreen(ConnectScreenState(link, file, localBackends, saved, termuxAccess, busy, message, startProject, question, starting), actions, fonts)
                     } else {
                         val state by current.state.collectAsState()
                         LaunchedEffect(state.connectionLost) {
@@ -107,6 +108,11 @@ class MainActivity : ComponentActivity() {
                             session = null
                             // A join token works once: after another client (e.g. Gateway) took over, the saved one is declined.
                             if (!accepted && failed?.resumed == true) return@LaunchedEffect termuxStatus(failed.project)
+                            // FORCE_TERMINATE_WIRE (SplitWire): the backend ends our session when another client connects with a fresh token.
+                            if (accepted && failed?.kind == ConnectionKind.TERMUX && "Backend terminated the wire" in lost) {
+                                question = Question("Another device took over this backend.", "Take back") { termuxStatus(failed.project, takingOver = true) }
+                                return@LaunchedEffect
+                            }
                             message = if (accepted) "Connection lost: $lost. Tap it under History to reconnect." else "Couldn't connect: $lost"
                         }
                         LaunchedEffect(state.projectName, accepted) {
@@ -150,7 +156,7 @@ class MainActivity : ComponentActivity() {
         accepted = false
         message = null
         startProject = null
-        takeOver = null
+        question = null
         session = ClientSession(joinLink, openFile, certificate) { acceptedCertificate ->
             val encoded = acceptedCertificate.encode()
             runOnUiThread { onAccepted(current, encoded) }
@@ -204,10 +210,6 @@ class MainActivity : ComponentActivity() {
         else connect(ConnectionKind.TERMUX, entry.lastLink, project, entry.openFile, entry.identity, resumed = true)
     }
 
-    private fun takeOverQuestion() = takeOver?.let { pending ->
-        "Another client is connected to the backend for ${pending.project?.substringAfterLast('/')} (for example Gateway on a laptop). " +
-            "Connecting from this phone ends its session."
-    }
 
     private fun openDiscovered(backend: DiscoveredBackend) {
         if (busy != null) return
@@ -226,13 +228,15 @@ class MainActivity : ComponentActivity() {
 
     /**
      * `intellij-backend status --json`: connects when a backend runs, otherwise offers to start one for [project]
-     * (docs/connections.md, "Runtime contract").
+     * (docs/connections.md, "Runtime contract"). `controllerConnected` counts this app too, so it is only checked after
+     * our own resume was refused; [takingOver]: the user already chose to take the backend back.
      */
-    private fun termuxStatus(project: String?) {
+    private fun termuxStatus(project: String?, takingOver: Boolean = false) {
         if (!termux.hasPermission) {
             termuxPermission.launch(Termux.PERMISSION)
             return
         }
+        question = null
         busy = "Asking Termux for the backend's link…"
         termux.run(listOf("status", "--json")) { result ->
             busy = null
@@ -242,8 +246,15 @@ class MainActivity : ComponentActivity() {
                     when {
                         output.exitCode != 0 || status == null -> message = "intellij-backend status failed (exit ${output.exitCode}): ${output.stderr.ifBlank { output.stdout }}"
                         !status.optBoolean("running") -> startProject = project ?: "${Termux.HOME}/"
-                        status.optBoolean("controllerConnected") -> takeOver = TakeOver(status.getString("joinLink"), status.optString("project"))
-                        else -> connectTermux(status.getString("joinLink"), status.optString("project"))
+                        else -> {
+                            val joinLink = status.getString("joinLink")
+                            val running = status.optString("project")
+                            if (takingOver || !status.optBoolean("controllerConnected")) connectTermux(joinLink, running)
+                            else question = Question(
+                                "Another device is connected to this backend (for example Gateway on a laptop). Take over? It will be disconnected.",
+                                "Take over",
+                            ) { connectTermux(joinLink, running) }
+                        }
                     }
                 },
                 onFailure = { failure -> message = failure.message },
@@ -257,10 +268,12 @@ class MainActivity : ComponentActivity() {
             message = "Enter the project folder to start the backend for."
             return
         }
-        if (busy != null) return
-        busy = "Starting the backend in Termux; this takes up to 3 minutes…"
+        if (busy != null || starting != null) return
+        message = null
+        starting = project
         termux.run(listOf("start", project)) { result ->
-            busy = null
+            if (starting != project) return@run
+            starting = null
             result.fold(
                 onSuccess = { output ->
                     when (output.exitCode) {
@@ -270,6 +283,18 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 onFailure = { failure -> message = failure.message },
+            )
+        }
+    }
+
+    /** Like Gateway's Cancel: stops the backend that `start` is bringing up. */
+    private fun cancelStart() {
+        starting = null
+        message = "Start cancelled. Stopping the backend in Termux…"
+        termux.run(listOf("stop")) { result ->
+            message = result.fold(
+                onSuccess = { output -> if (output.exitCode == 0) "Start cancelled; the backend is stopped." else "intellij-backend stop failed (exit ${output.exitCode}): ${output.stderr}" },
+                onFailure = { failure -> failure.message },
             )
         }
     }
