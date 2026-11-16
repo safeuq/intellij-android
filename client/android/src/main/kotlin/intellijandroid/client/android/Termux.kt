@@ -22,11 +22,14 @@ class Termux(private val context: Context) {
     val hasPermission: Boolean
         get() = context.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED
 
+    /** A folder in Termux's file system; [isProject] when it holds an `.idea` folder. */
+    data class Folder(val name: String, val isProject: Boolean)
+
     /**
-     * Runs `intellij-backend <arguments>` in the background; [onResult] gets its exit code and output on the main
-     * thread, or a failure when Termux couldn't run it (e.g. `allow-external-apps` is off).
+     * Runs `<executable> <arguments>` (by default `intellij-backend`) in the background; [onResult] gets its exit code
+     * and output on the main thread, or a failure when Termux couldn't run it (e.g. `allow-external-apps` is off).
      */
-    fun run(arguments: List<String>, onResult: (kotlin.Result<Result>) -> Unit) {
+    fun run(arguments: List<String>, executable: String = COMMAND, onResult: (kotlin.Result<Result>) -> Unit) {
         check(hasPermission) { "The app doesn't have Termux's RUN_COMMAND permission yet" }
         val action = "${context.packageName}.TERMUX_RESULT.${requestCodes.incrementAndGet()}"
         val receiver = object : BroadcastReceiver() {
@@ -53,7 +56,7 @@ class Termux(private val context: Context) {
         )
         val command = Intent("com.termux.RUN_COMMAND")
             .setClassName(PACKAGE, "com.termux.app.RunCommandService")
-            .putExtra("com.termux.RUN_COMMAND_PATH", COMMAND)
+            .putExtra("com.termux.RUN_COMMAND_PATH", executable)
             .putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arguments.toTypedArray())
             .putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
             .putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", resultIntent)
@@ -63,10 +66,35 @@ class Termux(private val context: Context) {
         }
     }
 
+    /**
+     * The folders directly inside [path], hidden ones included, sorted like IntelliJ's file chooser (ignoring case).
+     * This app can't read Termux's private files itself, so Termux's shell lists them.
+     */
+    fun listFolders(path: String, onResult: (kotlin.Result<List<Folder>>) -> Unit) =
+        run(listOf("-c", LIST_FOLDERS, "sh", path), executable = SHELL) { result ->
+            onResult(
+                result.mapCatching { output ->
+                    check(output.exitCode == 0) { "Can't list $path: ${output.stderr.ifBlank { "exit ${output.exitCode}" }}" }
+                    output.stdout.lines().filter { it.isNotEmpty() }
+                        .map { line -> Folder(line.substringAfter('/'), isProject = line.startsWith("project/")) }
+                        .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+                },
+            )
+        }
+
     companion object {
         const val PACKAGE = "com.termux"
         const val PERMISSION = "com.termux.permission.RUN_COMMAND"
         const val COMMAND = "/data/data/com.termux/files/usr/bin/intellij-backend"
+
+        private const val SHELL = "/data/data/com.termux/files/usr/bin/sh"
+
+        /** Prints `folder/<name>` or `project/<name>` (has `.idea`) per sub-folder of `$1`. Names can't hold `/`. */
+        private const val LIST_FOLDERS = """cd "${'$'}1" || exit 1
+for entry in * .[!.]* ..?*; do
+  [ -d "${'$'}entry" ] || continue
+  if [ -d "${'$'}entry/.idea" ]; then echo "project/${'$'}entry"; else echo "folder/${'$'}entry"; fi
+done"""
 
         /** Termux's home folder; RUN_COMMAND passes arguments without a shell, so `~` isn't expanded. */
         const val HOME = "/data/data/com.termux/files/home"

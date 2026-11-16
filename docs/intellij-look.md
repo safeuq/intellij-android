@@ -340,3 +340,19 @@ From a screenshot of the real client's popup at 2× (`client/src/main/kotlin/int
 | Vertical | 2 between border and first row; groups ("Commands") get a 1 px separator 4 below the previous row, then a 22 high header |
 | Footer tip | 12 from the left border (`Popup.Advertiser borderInsets 6,12,6,12`) |
 | Position | just under the caret line; the item text starts 6.5 to the right of the typed prefix |
+
+## 9. Folder chooser, measured (2026-11-16)
+
+From a 2x screenshot of IntelliJ's "Open File or Project" dialog (`FileChooserDialogImpl`, Islands Dark, macOS), browsing Termux's home. Values in pt (= dp in the app). Used by the Android app's project folder picker (`client/android/.../FolderChooser.kt`).
+
+| Part | Value |
+|---|---|
+| Dialog | 475 × 482, background `#191A1C` (same as the islands) |
+| Toolbar | icons 16, one every 26, first box 21 from the left; separator `#363738`; "Hide path" link on the right, 13.5 from the edge |
+| Path field | 14.5 from both sides, 68 below the dialog's top, 24 high; focused ring `#4670DA`; a drop-down (path history) at its right end |
+| Tree panel | 12.5 from both sides; rows 22, indent 19 (as the Project tree); selection `#33353A`, inset 12 from both panel sides |
+| Icons | `expui/nodes/folder.svg`; a folder with `.idea` gets `expui/nodes/ideaProject.svg` (folder with a small badge); toolbar `expui/nodes/homeFolder.svg`, `expui/general/refresh.svg`, `expui/actions/toggleVisibility.svg` |
+| Buttons | OK `#4670DA` filled, Cancel outlined `#414349`; each 72 × 24, 12 apart, 15 from the right, 11 from the bottom |
+| Browse icon in a text field (`TextFieldWithBrowseButton`) | `expui/inline/browse.svg` |
+
+Left out in the app: Desktop, New Folder, Delete, the path history drop-down, the help button, and the drag-and-drop hint.

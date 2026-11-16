@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
             allowTermux = { termuxPermission.launch(Termux.PERMISSION) },
             startChanged = { startProject = it },
             startInTermux = ::startInTermux,
+            listFolders = { path, onResult -> termux.listFolders(path, onResult) },
             refresh = ::refresh,
         )
 
