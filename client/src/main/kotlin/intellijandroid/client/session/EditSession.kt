@@ -83,6 +83,13 @@ class EditorIdentity(val documentId: RdDocumentId, val editorId: TextControlId, 
         const val TEXT_EDITOR_PROVIDER = "text-editor"
 
         /**
+         * The text editor in a composite. Its index is the composite's, not 1: the second file opened gets composite
+         * index 2 and editor `text-editor` index 2 (seen in `FileEditorCompositeModel.editors`, 2026-11-16). With index
+         * 1 the backend refused the selection ("Attempt to select already gone editor").
+         */
+        fun textEditorId(composite: RdFileEditorCompositeId) = RdFileEditorId(composite, TEXT_EDITOR_PROVIDER, composite.index)
+
+        /**
          * For an editor the backend opened by itself, the file editor id comes from the text control id:
          * `KernelAwareTextControlId(documentId = file, tabIndex, clientId, projectId)` → `RdFileEditorCompositeId(file, clientId, tabIndex, projectId)`.
          */
@@ -91,7 +98,7 @@ class EditorIdentity(val documentId: RdDocumentId, val editorId: TextControlId, 
             val fileId = (control.documentId as? RdDocumentIdWithFileId)?.fileId ?: return null
             val projectId = control.projectId ?: return null
             val composite = knownComposite ?: RdFileEditorCompositeId(fileId, control.clientId, control.tabIndex, projectId)
-            return EditorIdentity(documentId, editorId, RdFileEditorId(composite, TEXT_EDITOR_PROVIDER, 1), projectId)
+            return EditorIdentity(documentId, editorId, textEditorId(composite), projectId)
         }
     }
 }

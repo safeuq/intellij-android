@@ -8,7 +8,7 @@ Needs:
 - the Android SDK (`ANDROID_HOME`); AGP downloads platform 37 itself;
 - Java 17 or newer to run Gradle; IntelliJ's bundled JBR works;
 - the Gradle distribution (9.6.0) on disk. The wrapper's own download failed on the Mac: `Downloading from https://services.gradle.org/distributions/gradle-9.6.0-bin.zip failed: timeout (10000ms)` (the zip is served from github.com, which Java on that Mac doesn't reach), while `curl -L` of the same URL worked. Fetch it with curl and put it where the wrapper looks: `~/.gradle/wrapper/dists/gradle-9.6.0-bin/<hash>/gradle-9.6.0-bin.zip` (the `<hash>` folder is the one the failed run created);
-- JetBrains Client **263.7307.200**, the same build as the backend. The build takes the protocol jars, the icons jar and the fonts from it.
+- JetBrains Client **263.7307.200**, the same build as the backend. The build takes the protocol jars and the fonts from it, and every SVG from its `lib/` and `plugins/` jars into one `icons.jar` asset (about 6,100 icons, 4.5 MB compressed): the backend names icons by path, and plugin icons (Kotlin's file and class icons are in `intellij.kotlin.base.resources.jar`) aren't in `intellij.platform.icons.jar`. Before this, Kotlin files and other plugin icons showed no icon. The platform jar goes first, so its icons win when two jars have the same path.
 
 ```sh
 export ANDROID_HOME="$HOME/Library/Android/sdk"

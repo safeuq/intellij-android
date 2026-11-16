@@ -38,9 +38,9 @@ object AndroidResources {
         )
     }
 
-    /** [IconJar] needs a file; the jar asset (5 MB) is copied out on every start, so an app update brings new icons. */
+    /** [IconJar] needs a file; the jar asset (all of the client's SVGs) is copied out on every start, so an app update brings new icons. */
     fun iconJar(context: Context): IconJar {
-        val file = File(context.noBackupFilesDir, "intellij.platform.icons.jar")
+        val file = File(context.noBackupFilesDir, "icons.jar")
         context.assets.open(file.name).use { input -> file.outputStream().use { input.copyTo(it) } }
         return IconJar(file)
     }

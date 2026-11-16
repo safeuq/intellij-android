@@ -139,17 +139,33 @@ val prepareProtocolJars by tasks.registering(PrepareProtocolJars::class) {
     outputDirectory = layout.buildDirectory.dir("protocol-jars")
 }
 
-/** Fonts (JetBrains Mono, Inter) from JetBrains Client's JBR and the icons jar, packaged as assets. */
+/**
+ * Fonts (JetBrains Mono, Inter) from JetBrains Client's JBR, and `icons.jar`: every SVG from the client's jars, platform
+ * and plugins. The backend names icons by path (plus a plugin we ignore), e.g. Kotlin's file icons live in
+ * `intellij.kotlin.base.resources.jar`, not in the platform icons jar. About 6,100 SVGs, 7 MB before compression.
+ */
 abstract class ClientAssets : DefaultTask() {
     @get:InputFiles abstract val fonts: ConfigurableFileCollection
-    @get:InputFiles abstract val iconsJar: ConfigurableFileCollection
+    /** The first jar with a given path wins, so the platform icons jar goes first. */
+    @get:InputFiles abstract val iconJars: ConfigurableFileCollection
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
 
     @TaskAction
     fun copy() {
         val output = outputDirectory.get().asFile.apply { deleteRecursively(); mkdirs() }
         fonts.forEach { it.copyTo(output.resolve("fonts/${it.name}")) }
-        iconsJar.forEach { it.copyTo(output.resolve(it.name)) }
+        val written = mutableSetOf<String>()
+        ZipOutputStream(output.resolve("icons.jar").outputStream()).use { icons ->
+            iconJars.forEach { jar ->
+                ZipFile(jar).use { zip ->
+                    zip.entries().asSequence().filter { it.name.endsWith(".svg") && written.add(it.name) }.forEach { entry ->
+                        icons.putNextEntry(ZipEntry(entry.name))
+                        zip.getInputStream(entry).use { it.copyTo(icons) }
+                        icons.closeEntry()
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -157,7 +173,8 @@ val clientAssets by tasks.registering(ClientAssets::class) {
     val fontDirectory = clientFile("../jbr/Contents/Home/lib/fonts")
     fonts.from(listOf("JetBrainsMono-Regular.ttf", "JetBrainsMono-Bold.ttf", "JetBrainsMono-Italic.ttf", "JetBrainsMono-BoldItalic.ttf", "Inter-Regular.otf", "Inter-SemiBold.otf")
         .map { fontDirectory.resolve(it).also { font -> check(font.isFile) { "Missing font $font" } } })
-    iconsJar.from(clientFile("intellij.platform.icons.jar"))
+    // ponytail: one path space for all plugins; two plugins with the same icon path get the first one. Key by plugin if that shows up.
+    iconJars.from(clientFile("intellij.platform.icons.jar"), fileTree(clientFile("..")) { include("lib/**/*.jar", "plugins/**/*.jar") })
     outputDirectory = layout.buildDirectory.dir("generated/client-assets")
 }
 

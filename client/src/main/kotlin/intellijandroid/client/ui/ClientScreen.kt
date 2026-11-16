@@ -39,6 +39,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -177,7 +178,8 @@ private fun ToolWindowContent(window: ToolWindow, state: SessionState, session: 
         tree = state.tree,
         onToggle = { session.toggle(it.id) },
         onSelect = { session.select(it.id) },
-        onOpen = { node -> node.path?.takeIf { !node.isDirectory }?.let(session::open) },
+        // Opening a file also slides back to the editor on a phone held upright.
+        onOpen = { node -> node.path?.takeIf { !node.isDirectory }?.let { path -> session.open(path); onNavigated() } },
         modifier = Modifier.fillMaxSize(),
     )
     ToolWindow.STRUCTURE -> StructureView(state, session, onNavigated, Modifier.fillMaxSize())
@@ -200,7 +202,8 @@ private fun SwipePager(
     modifier: Modifier,
 ) {
     BoxWithConstraints(modifier.clipToBounds()) {
-        val width = constraints.maxWidth.toFloat()
+        // One page is a screen wide plus the gap between islands, so neighbouring islands keep their gap while sliding.
+        val width = constraints.maxWidth.toFloat() + with(LocalDensity.current) { IslandsDark.islandGap.toPx() }
         fun offsetOf(target: Page) = when (target) { Page.LEFT -> width; Page.EDITOR -> 0f; Page.RIGHT -> -width }
         val offset = remember { Animatable(offsetOf(page)) }
         val scope = rememberCoroutineScope()

@@ -39,16 +39,16 @@ enum class Side { LEFT, RIGHT }
  * right here (IntelliJ puts it on the left by default), so one window can be open on each side.
  */
 enum class ToolWindow(val title: String, val icon: String, val side: Side, val supported: Boolean = false, val bottomGroup: Boolean = false) {
-    PROJECT("Project", "expui/toolwindows/project@20x20.svg", Side.LEFT, supported = true),
-    COMMIT("Commit", "expui/toolwindows/commit@20x20.svg", Side.LEFT),
-    BOOKMARKS("Bookmarks", "expui/toolwindows/bookmarks@20x20.svg", Side.LEFT),
-    SERVICES("Services", "expui/toolwindows/services@20x20.svg", Side.LEFT, bottomGroup = true),
-    RUN("Run", "expui/toolwindows/run@20x20.svg", Side.LEFT, bottomGroup = true),
-    DEBUG("Debug", "expui/toolwindows/debug@20x20.svg", Side.LEFT, bottomGroup = true),
-    PROBLEMS("Problems", "expui/toolwindows/problems@20x20.svg", Side.LEFT, bottomGroup = true),
-    GIT("Git", "expui/toolwindows/vcs@20x20.svg", Side.LEFT, bottomGroup = true),
-    STRUCTURE("Structure", "expui/toolwindows/structure@20x20.svg", Side.RIGHT, supported = true),
-    NOTIFICATIONS("Notifications", "expui/toolwindows/notifications@20x20.svg", Side.RIGHT),
+    PROJECT("Project", "expui/toolwindows/project.svg", Side.LEFT, supported = true),
+    COMMIT("Commit", "expui/toolwindows/commit.svg", Side.LEFT),
+    BOOKMARKS("Bookmarks", "expui/toolwindows/bookmarks.svg", Side.LEFT),
+    SERVICES("Services", "expui/toolwindows/services.svg", Side.LEFT, bottomGroup = true),
+    RUN("Run", "expui/toolwindows/run.svg", Side.LEFT, bottomGroup = true),
+    DEBUG("Debug", "expui/toolwindows/debug.svg", Side.LEFT, bottomGroup = true),
+    PROBLEMS("Problems", "expui/toolwindows/problems.svg", Side.LEFT, bottomGroup = true),
+    GIT("Git", "expui/toolwindows/vcs.svg", Side.LEFT, bottomGroup = true),
+    STRUCTURE("Structure", "expui/toolwindows/structure.svg", Side.RIGHT, supported = true),
+    NOTIFICATIONS("Notifications", "expui/toolwindows/notifications.svg", Side.RIGHT),
 }
 
 /** Which tool window is open on each side; at most one per side, as the portrait spec asks. */
@@ -105,7 +105,8 @@ private fun StripeButton(window: ToolWindow, selected: Boolean, onClick: () -> U
         Box(
             Modifier.matchParentSize().background(if (selected) Bars.selected else Color.Transparent, Bars.buttonShape).clickable(onClick = onClick),
         )
-        icon?.let { Image(it, contentDescription = window.title, modifier = Modifier.size(20.dp)) }
+        // 16 like the main toolbar's icons; IntelliJ's stripes use the 20 px set, which looked heavier next to them.
+        icon?.let { Image(it, contentDescription = window.title, modifier = Modifier.size(16.dp)) }
     }
 }
 
@@ -173,7 +174,7 @@ internal fun initials(name: String): String {
     }.uppercase()
 }
 
-/** Sizes from IntelliJ's new UI (stripe 40 wide, 20 px icons; main toolbar 40 high). */
+/** Sizes from IntelliJ's new UI (stripe 40 wide; main toolbar 40 high). Icons are 16 everywhere. */
 private object Bars {
     val thickness = 40.dp
     val button = 32.dp

@@ -613,7 +613,7 @@ RECV map `…projectViewModel.panes.[0].items` Add :: key = 1 :: value = RdProje
 |---|---|
 | `parentId` | `null` for top-level nodes (`smoke` -1, `External Libraries` 0, `Scratches and Consoles` 1 = `sortKey`) |
 | `presentation` | label fragments; `style` is `SimpleTextAttributes` bits (1 bold: the project root is bold), `fgColor` an ARGB int or null |
-| `icon` | `ImageIconModel` with a path in `intellij.platform.icons.jar`; `RowIconModel` = several icons; `DeferredIconModel` = a placeholder (`baseIcon`) replaced later by an item update |
+| `icon` | `ImageIconModel` with an `ImageIconModelId(identity, path, plugin, module)`: the path is inside the platform icons jar or the named plugin's jars (e.g. Kotlin files); `RowIconModel` = several icons; `DeferredIconModel` = a placeholder (`baseIcon`) replaced later by an item update |
 | `expand` | `RdCall<Int, Unit>`: the backend adds the children to `items` (with `parentId` = the node) before it answers, then fires `childrenLoaded(id)` |
 | `selection` | `IProperty<Int>`: the client sets it when the user selects a row |
 | `navigate`, `navigateByPath`, `expandByPath`, `dnd` | not used yet; the client opens files itself (`VfsModel.findFile` + `requestComposite`) |

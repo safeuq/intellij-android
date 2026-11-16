@@ -53,10 +53,26 @@ CodeStructureTreeNode { id, children: List<Int>, filters, searchableTexts, navig
    `BackendFileStructureHost - Sending file structure to frontend`. In the bytecode, `BackendFileStructureHost$2$1$1`
    sends `emptyStructureModel()` when its `selectedEditorFlow` (a `MutableStateFlow<SelectedEditor?>`) is null. That
    flow is set only by `MyListener.selectionChanged`, a `FileEditorManagerListener` for non-local client sessions.
-   Our client fired its one `fileEditorsModel.selectionChanged` when the file opened, but the host didn't have it.
-   [inferred] The host is a per-client service created on first use, and the first selection came before it existed.
-3. **Fix**: when the tool window becomes visible, the client fires `selectionChanged(Frontend, old = null, new = <selected editor id>)`
-   again. The backend then sends the tree within ~0.2 s:
+   Our client fired its one `fileEditorsModel.selectionChanged` when the file opened, and the backend refused it.
+   The backend log said why (seen 15:46–15:51 IST):
+
+   ```
+   WARN - #c.j.r.f.BackendFileEditorHost - Attempt to select already gone editor: RdFileEditorId(compositeId=… index = 2 …, providerId=text-editor, index=1)
+   INFO - #c.j.r.f.GuestFileEditorManager - Changing selected editor ClientId(…): old Editor: …/Main.java, new null
+   ```
+
+   Two causes. **Timing**: the client selects the editor as soon as `requestComposite` answers, ~0.2 s before the
+   backend has made the editor; the same select sent once `backendDeferredComposites[id].model` arrives works.
+   **Wrong index**: the client built the text editor's id with index 1, but the index is the composite's: the
+   first file opened gets composite index 1 and `text-editor` index 1, the second gets 2 and 2
+   (`FileEditorCompositeModel.editors`). So for every file after the first, the selection never worked, and the
+   Structure tool window showed "Loading…" for it (the user's report, 2026-11-16, on `ConfigurationManager.java`).
+   The same index went into `EditorIdentity.fileEditorId`, which the client sends with editor actions.
+3. **Fix**: the text editor id uses the composite's index (`EditorIdentity.textEditorId`), and the client sends
+   `selectionChanged(Frontend, old = null, new = <editor id>)` again when the composite's model arrives. The backend
+   then logs `Changing selected editor: old null, new Editor: …/Other.java` and sends the tree within ~0.2 s.
+   (A first version sent the selection again whenever the tool window opened; that only hid the timing problem for
+   the first file, and is gone.) For `Main.java`:
 
    | index | shortName | children | icon paths |
    |---|---|---|---|
@@ -66,6 +82,8 @@ CodeStructureTreeNode { id, children: List<Int>, filters, searchableTexts, navig
 
    So for Java the root is the file node.
 4. Typing `int count` into the class body: a new `treeNodes` with 4 nodes, `count: int` before `main`.
+   Opening `Other.java` (`count: int`, `next(): int`) and `Util.kt` (`twice(Int): Int`, `Holder` with
+   `constructor Holder(String)` and `name: String`): each gets its tree when it becomes the selected editor.
 5. A tap on a node: our client moves the caret itself to `offset` with the editing protocol (it doesn't fire
    `navigateTo`), so it works without a round trip and keeps our caret model in charge.
 

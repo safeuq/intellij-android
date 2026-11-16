@@ -32,7 +32,8 @@ across a rotation.
   a double tap also slides back to the editor on a phone held upright.
 - **Tool window bar**: every button from IntelliJ's two stripes in one bar, in three groups split by separators:
   left stripe top (Project, Commit, Bookmarks), left stripe bottom (Services, Run, Debug, Problems, Git), right
-  stripe (Structure, Notifications). Icons are IntelliJ's `expui/toolwindows/<name>@20x20.svg`, buttons 32 in a
+  stripe (Structure, Notifications). Icons are IntelliJ's `expui/toolwindows/<name>.svg` at 16, like the main toolbar's
+  (IntelliJ's stripes use the 20 px set, which looked larger and heavier next to the toolbar), buttons 32 in a
   40-thick bar, selected background `#393B40`. Only Project and Structure open; the rest say they aren't supported.
 - **One tool window per side** at most. Tapping an open window's button closes it, as on IntelliJ's stripes.
 - **Structure is on the right.** IntelliJ puts it on the left by default; on the right it can be open together with
@@ -59,6 +60,9 @@ the bottom instead of Gateway's sidebar ([`intellij-look.md`](intellij-look.md) 
   pulls it in. The swipe opens the window last used on that side (Project and Structure at first).
 - A drag counts as a swipe once it has moved the touch slop and is at least twice as far sideways as up or down.
   Past a third of the width, or a flick faster than 1000 px/s, it moves one page; otherwise it springs back.
+- One page is the screen width plus the 6 dp island gap, so two islands keep their gap and rounded corners while
+  sliding (before, they touched mid-swipe).
+- Opening a file from the Project tool window (double tap) slides back to the editor.
 - The swipe takes the touch events in Compose's `Initial` pass, before the editor sees them. So in this layout
   **selecting text by dragging sideways doesn't work**; vertical drags still reach the editor.
 - The editor now moves the caret and takes focus on **tap**, not on press. On press, every swipe that started on

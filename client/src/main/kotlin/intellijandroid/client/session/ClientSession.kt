@@ -334,7 +334,14 @@ class ClientSession(
             newSolution.editorTabsModel
             // The backend lists each open file's editor here; the client marks the one it shows as visible.
             newSolution.fileEditorsModel.backendDeferredComposites.view(solutionLifetime) { compositeLifetime, compositeId, deferred ->
-                deferred.model.advise(compositeLifetime) { composite -> composite.visible.set(compositeId == selectedEditorId?.compositeId) }
+                deferred.model.advise(compositeLifetime) { composite ->
+                    val selected = selectedEditorId?.takeIf { it.compositeId == compositeId }
+                    composite.visible.set(selected != null)
+                    // The selection sent when the file opened can come before the backend made this editor, and is then
+                    // refused ("Attempt to select already gone editor", ~0.2 s early on the Mac backend); the backend then
+                    // has no selected editor, which the Structure tool window needs. Now the editor exists: send it again.
+                    if (selected != null) newSolution.fileEditorsModel.selectionChanged.fire(FileEditorManagerEventModel(OriginKind.Frontend, null, selected))
+                }
             }
             createProjectView(solutionLifetime, newSolution)
             bindStructure(solutionLifetime, newSolution)
@@ -349,9 +356,6 @@ class ClientSession(
         structureVisible = visible
         val current = solution ?: return@onRd
         current.codeStructureTreeModel.toolWindowVisible.set(visible)
-        // The backend's structure host answers "no editor" until it sees a selection event after it started listening,
-        // and the one sent when the file opened came too early. So tell it again (docs/structure-protocol.md).
-        if (visible) selectedEditorId?.let { editorId -> current.fileEditorsModel.selectionChanged.fire(FileEditorManagerEventModel(OriginKind.Frontend, null, editorId)) }
     }
 
     /**
@@ -419,7 +423,7 @@ class ClientSession(
         mutableState.update { it.copy(selectedEditor = path) }
         val fileEditors = solution?.fileEditorsModel ?: return
         val compositeId = compositeIds[path] ?: return
-        val editorId = RdFileEditorId(compositeId, TEXT_EDITOR_PROVIDER, 1)
+        val editorId = EditorIdentity.textEditorId(compositeId)
         if (editorId == selectedEditorId) return
         fileEditors.selectionChanged.fire(FileEditorManagerEventModel(OriginKind.Frontend, selectedEditorId, editorId))
         selectedEditorId = editorId
@@ -526,7 +530,6 @@ class ClientSession(
         /** The user's IntelliJ uses Islands Dark (its theme and its editor scheme). */
         const val EDITOR_SCHEME = "Islands Dark"
         const val PROJECT_PANE = "ProjectPane"
-        const val TEXT_EDITOR_PROVIDER = "text-editor"
 
         fun HighlighterElement.toRaw(): RawHighlight {
             val model = highlighter
