@@ -48,6 +48,8 @@ data class ConnectScreenState(
     val message: String?,
     /** Set when Termux has no backend running: the project folder to offer `intellij-backend start` for. */
     val startProject: String?,
+    /** Set when Termux's backend has another client connected: asks before connecting ends that client's session. */
+    val takeOver: String?,
 )
 
 enum class TermuxAccess { NOT_INSTALLED, NO_PERMISSION, READY }
@@ -64,6 +66,8 @@ class ConnectActions(
     val startInTermux: () -> Unit,
     val listFolders: (path: String, onResult: (Result<List<Termux.Folder>>) -> Unit) -> Unit,
     val refresh: () -> Unit,
+    val takeOver: () -> Unit,
+    val cancelTakeOver: () -> Unit,
 )
 
 /** Link prompt on the left; backends running on this phone and connections made before on the right (docs/connections.md). */
@@ -80,6 +84,13 @@ fun ConnectScreen(state: ConnectScreenState, actions: ConnectActions, fonts: Cli
             Button("Connect", styles, actions.connectLink)
             state.busy?.let { BasicText(it, style = styles.label) }
             state.message?.let { BasicText(it, style = styles.label.copy(color = IslandsDark.text)) }
+            state.takeOver?.let { question ->
+                BasicText(question, style = styles.label.copy(color = IslandsDark.text))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button("Take over", styles, actions.takeOver)
+                    Button("Cancel", styles, actions.cancelTakeOver)
+                }
+            }
             state.startProject?.let { project ->
                 BasicText("No backend is running in Termux. Project folder to start one for:", style = styles.label)
                 Field(project, actions.startChanged, styles, onBrowse = { choosingFolder = true })

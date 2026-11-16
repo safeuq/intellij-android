@@ -48,12 +48,17 @@ class MainActivity : ComponentActivity() {
     private var saved by mutableStateOf(emptyList<SavedConnection>())
     private var localBackends by mutableStateOf(emptyList<DiscoveredBackend>())
     private var termuxAccess by mutableStateOf(TermuxAccess.NOT_INSTALLED)
+    /** Termux's backend has another client connected (e.g. Gateway); connecting with this link ends that client's session. */
+    private var takeOver by mutableStateOf<TakeOver?>(null)
 
     private lateinit var history: ConnectionHistory
     private lateinit var termux: Termux
     private val termuxPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { refresh() }
 
-    private class Attempt(val kind: ConnectionKind, val link: JoinLink, val text: String, val project: String?, val openFile: String?)
+    /** [resumed]: the saved link and identity of a Termux entry; if refused, the app asks Termux for a fresh link. */
+    private class Attempt(val kind: ConnectionKind, val link: JoinLink, val text: String, val project: String?, val openFile: String?, val resumed: Boolean)
+
+    private class TakeOver(val joinLink: String, val project: String?)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,6 +87,8 @@ class MainActivity : ComponentActivity() {
             startInTermux = ::startInTermux,
             listFolders = { path, onResult -> termux.listFolders(path, onResult) },
             refresh = ::refresh,
+            takeOver = { takeOver?.let { pending -> connectTermux(pending.joinLink, pending.project) } },
+            cancelTakeOver = { takeOver = null },
         )
 
         setContent {
@@ -90,13 +97,16 @@ class MainActivity : ComponentActivity() {
                     val current = session
                     if (current == null) {
                         LaunchedEffect(Unit) { refresh() }
-                        ConnectScreen(ConnectScreenState(link, file, localBackends, saved, termuxAccess, busy, message, startProject), actions, fonts)
+                        ConnectScreen(ConnectScreenState(link, file, localBackends, saved, termuxAccess, busy, message, startProject, takeOverQuestion()), actions, fonts)
                     } else {
                         val state by current.state.collectAsState()
                         LaunchedEffect(state.connectionLost) {
                             val lost = state.connectionLost ?: return@LaunchedEffect
+                            val failed = attempt
                             current.stop()
                             session = null
+                            // A join token works once: after another client (e.g. Gateway) took over, the saved one is declined.
+                            if (!accepted && failed?.resumed == true) return@LaunchedEffect termuxStatus(failed.project)
                             message = if (accepted) "Connection lost: $lost. Tap it under History to reconnect." else "Couldn't connect: $lost"
                         }
                         LaunchedEffect(state.projectName, accepted) {
@@ -127,7 +137,7 @@ class MainActivity : ComponentActivity() {
         connect(ConnectionKind.LINK, text, project = null, openFile, identity)
     }
 
-    private fun connect(kind: ConnectionKind, text: String, project: String?, openFile: String?, identity: String?) {
+    private fun connect(kind: ConnectionKind, text: String, project: String?, openFile: String?, identity: String?, resumed: Boolean = false) {
         val joinLink = runCatching { JoinLink.parse(text) }.getOrElse { failure -> message = failure.message; return }
         val certificate = identity?.let { encoded ->
             runCatching { ClientCertificate.decode(encoded) }.getOrElse { failure ->
@@ -135,11 +145,12 @@ class MainActivity : ComponentActivity() {
                 return
             }
         }
-        val current = Attempt(kind, joinLink, text.trim(), project, openFile)
+        val current = Attempt(kind, joinLink, text.trim(), project, openFile, resumed)
         attempt = current
         accepted = false
         message = null
         startProject = null
+        takeOver = null
         session = ClientSession(joinLink, openFile, certificate) { acceptedCertificate ->
             val encoded = acceptedCertificate.encode()
             runOnUiThread { onAccepted(current, encoded) }
@@ -182,15 +193,27 @@ class MainActivity : ComponentActivity() {
                 link = entry.lastLink
                 connect(ConnectionKind.LINK, entry.lastLink, project = null, entry.openFile, entry.identity)
             }
-            ConnectionKind.TERMUX -> termuxStatus(entry.project)
+            ConnectionKind.TERMUX -> openTermux(entry.project)
         }
+    }
+
+    /** Resumes with the saved link and identity; when that is refused, the connection-lost handler asks Termux (docs/connections.md). */
+    private fun openTermux(project: String?) {
+        val entry = saved.firstOrNull { it.kind == ConnectionKind.TERMUX && it.project == project }
+        if (entry == null) termuxStatus(project)
+        else connect(ConnectionKind.TERMUX, entry.lastLink, project, entry.openFile, entry.identity, resumed = true)
+    }
+
+    private fun takeOverQuestion() = takeOver?.let { pending ->
+        "Another client is connected to the backend for ${pending.project?.substringAfterLast('/')} (for example Gateway on a laptop). " +
+            "Connecting from this phone ends its session."
     }
 
     private fun openDiscovered(backend: DiscoveredBackend) {
         if (busy != null) return
         val known = saved.firstOrNull { entry -> entry.kind == ConnectionKind.LINK && entry.host == backend.host && entry.port == backend.port }
         when {
-            backend.joinLink != null -> connectTermux(backend.joinLink, backend.project)
+            backend.joinLink != null -> openTermux(backend.project)
             known != null -> openSaved(known)
             else -> {
                 link = "tcp://${backend.host}:${backend.port}#"
@@ -218,8 +241,9 @@ class MainActivity : ComponentActivity() {
                     val status = runCatching { JSONObject(output.stdout) }.getOrNull()
                     when {
                         output.exitCode != 0 || status == null -> message = "intellij-backend status failed (exit ${output.exitCode}): ${output.stderr.ifBlank { output.stdout }}"
-                        status.optBoolean("running") -> connectTermux(status.getString("joinLink"), status.optString("project"))
-                        else -> startProject = project ?: "${Termux.HOME}/"
+                        !status.optBoolean("running") -> startProject = project ?: "${Termux.HOME}/"
+                        status.optBoolean("controllerConnected") -> takeOver = TakeOver(status.getString("joinLink"), status.optString("project"))
+                        else -> connectTermux(status.getString("joinLink"), status.optString("project"))
                     }
                 },
                 onFailure = { failure -> message = failure.message },
@@ -250,13 +274,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** The backend prints `0.0.0.0` when it listens on every address; from this phone it is `127.0.0.1`. */
+    /**
+     * A fresh join link from Termux, with a new client identity (resuming with the saved one is [openTermux]'s job). The
+     * backend prints `0.0.0.0` when it listens on every address; from this phone it is `127.0.0.1`.
+     */
     private fun connectTermux(printedLink: String, project: String?) {
         val text = printedLink.trim().replace("tcp://0.0.0.0:", "tcp://127.0.0.1:")
         val entry = saved.firstOrNull { it.kind == ConnectionKind.TERMUX && it.project == project }
-        // A new join token (the backend restarted) needs a new identity.
-        val identity = entry?.identity?.takeIf { entry.lastLink == text }
-        connect(ConnectionKind.TERMUX, text, project, entry?.openFile ?: file.ifBlank { null }, identity)
+        connect(ConnectionKind.TERMUX, text, project, entry?.openFile ?: file.ifBlank { null }, identity = null)
     }
 
     // ---- Discovery ----
