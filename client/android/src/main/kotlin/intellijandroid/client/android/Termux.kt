@@ -68,6 +68,9 @@ class Termux(private val context: Context) {
         const val PERMISSION = "com.termux.permission.RUN_COMMAND"
         const val COMMAND = "/data/data/com.termux/files/usr/bin/intellij-backend"
 
+        /** Termux's home folder; RUN_COMMAND passes arguments without a shell, so `~` isn't expanded. */
+        const val HOME = "/data/data/com.termux/files/home"
+
         /** `intellij-backend link` / `status`: exit code when no backend is running. */
         const val EXIT_NOT_RUNNING = 3
 

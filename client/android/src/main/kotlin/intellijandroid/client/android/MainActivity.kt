@@ -218,10 +218,7 @@ class MainActivity : ComponentActivity() {
                     when {
                         output.exitCode != 0 || status == null -> message = "intellij-backend status failed (exit ${output.exitCode}): ${output.stderr.ifBlank { output.stdout }}"
                         status.optBoolean("running") -> connectTermux(status.getString("joinLink"), status.optString("project"))
-                        else -> {
-                            message = "No backend is running in Termux."
-                            startProject = project.orEmpty()
-                        }
+                        else -> startProject = project ?: "${Termux.HOME}/"
                     }
                 },
                 onFailure = { failure -> message = failure.message },
@@ -280,12 +277,25 @@ class MainActivity : ComponentActivity() {
         }
         if (termuxAccess != TermuxAccess.READY) return
         termux.run(listOf("status", "--json")) { result ->
-            val status = result.getOrNull()?.takeIf { it.exitCode == 0 }?.let { runCatching { JSONObject(it.stdout) }.getOrNull() }
-            if (status == null || !status.optBoolean("running")) return@run
-            val project = status.optString("project")
-            val port = status.getInt("port")
-            val backend = DiscoveredBackend("This phone · ${project.substringAfterLast('/')}", port, project, status.getString("joinLink"))
-            localBackends = listOf(backend) + localBackends.filter { it.port != port }
+            result.fold(
+                onSuccess = { output ->
+                    val status = runCatching { JSONObject(output.stdout) }.getOrNull()
+                    when {
+                        output.exitCode != 0 || status == null ->
+                            message = "intellij-backend status failed (exit ${output.exitCode}): ${output.stderr.ifBlank { output.stdout }}"
+                        status.optBoolean("running") -> {
+                            val project = status.optString("project")
+                            val port = status.getInt("port")
+                            val backend = DiscoveredBackend("This phone · ${project.substringAfterLast('/')}", port, project, status.getString("joinLink"))
+                            localBackends = listOf(backend) + localBackends.filter { it.port != port }
+                            startProject = null
+                        }
+                        // Nothing running: offer to start one, for the last Termux project or a folder under Termux's home.
+                        startProject == null -> startProject = saved.firstOrNull { it.kind == ConnectionKind.TERMUX }?.project ?: "${Termux.HOME}/"
+                    }
+                },
+                onFailure = { failure -> message = failure.message },
+            )
         }
     }
 }

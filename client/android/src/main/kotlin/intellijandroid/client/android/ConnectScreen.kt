@@ -72,7 +72,7 @@ fun ConnectScreen(state: ConnectScreenState, actions: ConnectActions, fonts: Cli
             state.busy?.let { BasicText(it, style = styles.label) }
             state.message?.let { BasicText(it, style = styles.label.copy(color = IslandsDark.text)) }
             state.startProject?.let { project ->
-                BasicText("Project folder in Termux to start a backend for", style = styles.label)
+                BasicText("No backend is running in Termux. Project folder to start one for:", style = styles.label)
                 Field(project, actions.startChanged, styles)
                 Button("Start in Termux", styles, actions.startInTermux)
             }
