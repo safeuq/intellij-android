@@ -63,6 +63,27 @@ On macOS, Gateway's own SSH code is also blocked from the local network (`NoRout
 ssh -p 8022 -N -L 127.0.0.1:8122:127.0.0.1:8022 <phone-address>
 ```
 
+## How Android treats the backend
+
+Checked 2026-11-16 on a Galaxy S24+ with Android 17.
+
+| Setting | Value on that phone | Effect |
+|---|---|---|
+| battery optimization | `com.termux` and `com.termux.api` exempt (`dumpsys deviceidle whitelist`: `user,com.termux,10404`) | Doze still honours Termux's wake lock and network |
+| app standby bucket | `5`, exempt (`am get-standby-bucket com.termux`) | Android doesn't hold Termux back when idle |
+| wake lock | taken by the backend's parent (`termux-wake-lock`) | the CPU keeps running with the screen off |
+| child process limit | on (`settings_enable_monitor_phantom_procs` unset, `max_phantom_processes` unset = 32) | see below |
+
+With these, the backend kept serving with the screen off and the phone dozing (2026-11-16 12:00–12:24 IST). Connections to `127.0.0.1` don't leave the phone, so Doze's network limits don't apply to them.
+
+The real risk is Android's limit on processes that apps start (Android 12+, "phantom processes"). Termux's children count: the backend's JVM, its launcher shells, `fsnotifier`, git, Gradle daemons. Android tracks them (`ActivityManager: Process PhantomProcessRecord {… 6860:1203:sh/u0a404} died`) and can kill them when all apps together go over 32, or when one uses too much CPU. Turn the limit off with Developer options → "Disable child process restrictions" (Android 14+), or:
+
+```sh
+adb shell settings put global settings_enable_monitor_phantom_procs false
+```
+
+Commands run through Termux's RUN_COMMAND (the app) and Termux:API notification buttons get Termux's `PATH` but don't read a shell profile (`~/.zshenv`, `~/.bashrc`). That's why `intellij-backend` and its launcher wrapper set `IDEA_JDK`, `REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS` and `TMPDIR` themselves. Seen 2026-11-16: in a Termux session opened before `~/.zshenv` existed, `intellij-backend stop` ran IntelliJ's stop on the glibc JBR, which failed at once.
+
 ## Known limitations
 
 - IntelliJ's own `fsnotifier` gives up on Android (`File watcher gave up to operate`), so changes are found by periodic rescans. Use the Android build instead (see [`fsnotifier.md`](fsnotifier.md)). Projects in shared storage are rescanned either way: it's a FUSE mount, which `fsnotifier` doesn't watch.

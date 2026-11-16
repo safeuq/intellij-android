@@ -23,6 +23,8 @@ All documentation is in [`docs/`](docs/):
 | [`jbr-patches.md`](docs/jbr-patches.md) | every patch in the JBR recipe: what it does and why |
 | [`jbr-for-android.md`](docs/jbr-for-android.md) | plan and dated log of the whole build: every failure and fix |
 | [`fsnotifier.md`](docs/fsnotifier.md) | IntelliJ's file watcher built for Android |
+| [`remote-dev-server.md`](docs/remote-dev-server.md) | how IntelliJ's remote-dev server behaves: launcher, commands, status files, sessions, Gateway's steps, native parts that need glibc |
+| [`desktop-ui-on-the-phone.md`](docs/desktop-ui-on-the-phone.md) | IntelliJ's full window on the phone over VNC with XFCE: what works, VNC commands and behaviour |
 | [`connections.md`](docs/connections.md) | the app's connect screen (link, this-phone discovery, history) and the `intellij-backend` contract it relies on |
 | [`android-app.md`](docs/android-app.md) | build, install and run the Android app |
 | [`client.md`](docs/client.md) | the Compose client's code layout; run the desktop build |
