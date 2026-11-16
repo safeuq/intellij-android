@@ -52,7 +52,7 @@ What tapping an entry does:
 | Where | How |
 |---|---|
 | This phone | TCP connect to `127.0.0.1:5990`–`5999`. And if Termux is installed and the permission is granted: `intellij-backend status --json` through Termux |
-| LAN | Android `NsdManager`: browse `_intellij-backend._tcp` (announced by `intellij-backend` while the backend runs) and `_ssh._tcp` (macOS announces it when Remote Login is on) |
+| LAN | Android `NsdManager`: browse `_intellij._tcp` (announced by `intellij-backend` while the backend runs) and `_ssh._tcp` (macOS announces it when Remote Login is on) |
 
 Announcements never contain the join token. Anyone who has the token can join, and so run code on the machine.
 
@@ -73,7 +73,7 @@ DNS-SD announcement while the backend runs:
 
 | Item | Value |
 |---|---|
-| type | `_intellij-backend._tcp` |
+| type | `_intellij._tcp` (DNS-SD service names are at most 15 characters, RFC 6335 §5.1, so not `_intellij-backend._tcp`) |
 | instance name | `<device name> · <project folder name>`, e.g. `Pixel 8 · smoke` |
 | port | the backend port, e.g. `5990` |
 | TXT `v` | `1` |

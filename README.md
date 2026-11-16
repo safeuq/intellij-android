@@ -70,6 +70,39 @@ On macOS, JetBrains Client may be blocked from the local network (`NoRouteToHost
 ssh -p 8022 -N -L 127.0.0.1:5990:127.0.0.1:5990 <phone-address>
 ```
 
+### From JetBrains Gateway over SSH
+
+Gateway can start the backend on the phone itself and carry the connection inside its SSH session, so no join link and no port tunnel are needed. Tested 2026-11-16 with Gateway 263.7307.184: the backend ran on `jbr-25`, and JetBrains Client opened the project with full highlighting.
+
+One-time setup in Termux:
+
+```sh
+# Gateway's commands run through a non-interactive shell; zsh reads ~/.zshenv for those too
+# (with bash as the login shell, use ~/.bashrc).
+cat >> ~/.zshenv <<'EOF'
+export IDEA_JDK=$PREFIX/lib/jvm/jbr-25
+export REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0
+EOF
+# lets Gateway find this install instead of downloading its own (glibc) IntelliJ
+~/intellij/idea-IU-263.7307.200/bin/remote-dev-server.sh registerBackendLocationForGateway
+```
+
+Then open this link on the Mac, with the phone's address and SSH port (Termux's `whoami` is the user):
+
+```
+jetbrains-gateway://connect#type=ssh&deploy=false&host=<phone-address>&port=8022&user=u0_a404&idePath=%2Fdata%2Fdata%2Fcom.termux%2Ffiles%2Fhome%2Fintellij%2Fidea-IU-263.7307.200&projectPath=%2Fdata%2Fdata%2Fcom.termux%2Ffiles%2Fhome%2Fintellij%2Fsmoke
+```
+
+Or in Gateway: SSH → New Connection, then pick the IntelliJ under `~/intellij` and the project. Gateway keeps the connection in its recent list for later.
+
+What Gateway does on the phone: `uname -sm` (`Linux aarch64`), uploads its worker (a static Go program, runs on Android) to `~/.cache/JetBrains/RemoteDev/remote-dev-worker/`, runs commands as `/bin/sh -lc …` (Termux's `termux-exec` maps `/bin/sh`), starts `remote-dev-server.sh run` and forwards the backend's port over SSH. Its `chanreq for env … Request failed` warnings only mean the SSH server declines `LANG`; harmless.
+
+On macOS, Gateway's own SSH code is also blocked from the local network (`NoRouteToHostException`). Allow Gateway under System Settings → Privacy & Security → Local Network, or forward the phone's SSH port and connect Gateway to `127.0.0.1:8122` (add the phone's host key for `[127.0.0.1]:8122` to `~/.ssh/known_hosts` first, or accept it in Gateway's prompt within 30 seconds):
+
+```sh
+ssh -p 8022 -N -L 127.0.0.1:8122:127.0.0.1:8022 <phone-address>
+```
+
 ## Known limitations
 
 - IntelliJ's own `fsnotifier` gives up on Android (`File watcher gave up to operate`), so changes are found by periodic rescans. Use the Android build from `backend/fsnotifier/` instead (see its README). Projects in shared storage are rescanned either way: it's a FUSE mount, which `fsnotifier` doesn't watch.
