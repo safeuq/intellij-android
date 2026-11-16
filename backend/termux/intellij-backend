@@ -89,8 +89,22 @@ running_status_file() {
 	done
 }
 
+# The join link written when the backend started. Valid until the first client connects with it.
 join_link_of() {
 	jq -r '.joinLink' "$1"
+}
+
+# A join token works once: when a client connects with it, the backend issues a new one, but the
+# status file keeps the old one. So ask the backend itself with IntelliJ's status command (about
+# 1.5 s; it doesn't use up the token). Prints its JSON: joinLink, projects[].controllerConnected.
+live_status_json() {
+	local -r status_file="$1"
+	local output
+	output="$(timeout 30 "$(intellij_launcher)" status "$(project_of "$status_file")" 2>/dev/null)" || true
+	output="$(sed -n '/^{/,/^}/p' <<<"$output")"
+	jq -e '.joinLink' <<<"$output" >/dev/null 2>&1 \
+		|| fail "$EXIT_FAILED" "the backend (pid $(basename "$status_file")) didn't answer IntelliJ's status command"
+	echo "$output"
 }
 
 project_of() {
@@ -268,7 +282,9 @@ command_start() {
 	if [[ -n "$status_file" ]]; then
 		local -r running_project="$(project_of "$status_file")"
 		if [[ "$running_project" == "$project" ]]; then
-			join_link_of "$status_file"
+			local live_status
+			live_status="$(live_status_json "$status_file")"
+			jq -r '.joinLink' <<<"$live_status"
 			return
 		fi
 		fail "$EXIT_CONFLICT" "a backend for $running_project is running; stop it first"
@@ -308,7 +324,9 @@ command_link() {
 	[[ $# -eq 0 ]] || usage
 	local -r status_file="$(running_status_file)"
 	[[ -n "$status_file" ]] || fail "$EXIT_NOT_RUNNING" "no backend is running"
-	join_link_of "$status_file"
+	local live_status
+	live_status="$(live_status_json "$status_file")"
+	jq -r '.joinLink' <<<"$live_status"
 }
 
 command_status() {
@@ -323,7 +341,11 @@ command_status() {
 		if $json; then echo '{"running":false}'; else echo "not running"; fi
 		return
 	fi
-	local -r join_link="$(join_link_of "$status_file")"
+	local live_status
+	live_status="$(live_status_json "$status_file")"
+	local -r join_link="$(jq -r '.joinLink' <<<"$live_status")"
+	# A backend takes one client at a time: a new one with a valid token disconnects this one.
+	local -r controller_connected="$(jq '[.projects[]?.controllerConnected] | any' <<<"$live_status")"
 	local -r project="$(project_of "$status_file")"
 	# tcp://127.0.0.1:5990#jt=… → 127.0.0.1, 5990
 	[[ "$join_link" =~ ^[a-z-]+://([^:/#]+):([0-9]+) ]] || fail "$EXIT_FAILED" "unexpected join link in $status_file"
@@ -334,9 +356,10 @@ command_status() {
 			--argjson port "$port" \
 			--arg listenOn "$listen_address" \
 			--arg joinLink "$join_link" \
-			'{running: true, project: $project, port: $port, listenOn: $listenOn, joinLink: $joinLink}'
+			--argjson controllerConnected "$controller_connected" \
+			'{running: true, project: $project, port: $port, listenOn: $listenOn, joinLink: $joinLink, controllerConnected: $controllerConnected}'
 	else
-		echo "running: $project on $listen_address:$port (pid $(basename "$status_file"))"
+		echo "running: $project on $listen_address:$port (pid $(basename "$status_file")); client connected: $controller_connected"
 		echo "$join_link"
 	fi
 }

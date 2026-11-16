@@ -14,16 +14,18 @@ Ownership: the screens and the connection logic belong to the UI session (`clien
 
 | Part of the link | Example | Lifetime |
 |---|---|---|
-| `jt` (join token) | `584c7a19-0df1-4798-be5c-7af786a00846` | New on every backend start. Accepted from **one client id** only: a different client id gets `Declining invalid token` (see `split-protocol.md`) |
+| `jt` (join token) | `584c7a19-0df1-4798-be5c-7af786a00846` | **Used once** (seen 2026-11-16): when a client connects with it, the backend issues a new one. The same client id can use it again only to resume its own session; anyone else gets `Declining invalid token` (see `split-protocol.md`). `intellij-backend link` asks the backend for the current one (IntelliJ's status file keeps the first) |
 | client id | `<SHA3-256 of the client's CA certificate>-<epoch ms>` | Chosen by the client. Kept, it can use the same `jt` again |
 | `fp` | 64 hex digits | Server certificate fingerprint; checked by the client |
 | host, port | `tcp://127.0.0.1:5990` | `0.0.0.0` or `127.0.0.1` as printed by the backend; the client puts in the address it actually reached |
 
 The backend also keeps a dropped session open for the client to resume, with no time limit (`rdct.connection.rd.reconnection.timeout.seconds = -1`). It drops the session only when more than 100 MB of unsent updates pile up (`rdct.wire.storage.wire.buffer.size.bytes`).
 
+**One client at a time.** A backend takes one controlling client. When another connects with a valid token, the backend ends the first one's session (`Active controller connection has been detected. Terminate existing connection.`). Seen 2026-11-16: the phone app was connected, Gateway on the Mac connected to the same backend, the app showed "backend terminated the connection", and its retry with its stored token was refused (`Declining invalid token`).
+
 So:
-- **Every history entry stores the client identity it connected with** (CA key and certificate, client id), so the app can use the same `jt` again after it restarts.
-- The link itself is valid only until that backend restarts. Then a fresh link is needed: from Termux, over SSH, or pasted again.
+- **Every history entry stores the client identity it connected with** (CA key and certificate, client id), so the app can resume its session with the same `jt` after it restarts.
+- The stored link works only while that session exists: not after the backend restarts, and not after another client took over. Then a fresh link is needed: from Termux, over SSH, or pasted again. Connecting with it takes the backend over from the other client.
 
 ## History entry
 
@@ -43,8 +45,8 @@ What tapping an entry does:
 
 | Kind | Steps |
 |---|---|
-| `link` | Connect with the last link and the stored client identity. Refused or the server's `fp` changed (backend restarted) → ask for a new link and keep the entry |
-| `termux` | Run `intellij-backend link` through Termux. Exit `3` (not running) → offer `intellij-backend start <project>`. Connect to the printed link (address `127.0.0.1`). A new `jt` means a new client identity |
+| `link` | Connect with the last link and the stored client identity. Refused (another client took over) or the server's `fp` changed (backend restarted) → ask for a new link and keep the entry |
+| `termux` | Connect with the last link and the stored client identity, to resume. Refused → run `intellij-backend status --json` through Termux: not running → offer `intellij-backend start <project>`; `controllerConnected: true` → another client (e.g. Gateway on a laptop) has it, so ask before taking it over; then connect with its `joinLink` (address `127.0.0.1`) and a new client identity |
 | `ssh` | Over SSH, run `intellij-backend link` (exit `3` → offer `start`). Connect through an SSH local port forward to `127.0.0.1:<port>` on the host. This also avoids opening the backend's port on the LAN |
 
 ## Discovery
@@ -65,8 +67,8 @@ The command is `intellij-backend`, at `$PREFIX/bin/intellij-backend` (`/data/dat
 | Command | Prints (stdout) | Exit codes |
 |---|---|---|
 | `start <project> [--lan] [--port N]` | the join link, one line, once the backend is ready (waits up to 180 s). Already running for that project: prints its link | `0` ok, `1` failed (stderr says why), `4` another IntelliJ is using the same settings (desktop IntelliJ, or a backend for another project) |
-| `link` | the join link, one line | `0`, `3` not running |
-| `status --json` | `{"running":true,"project":"/data/…/smoke","port":5990,"listenOn":"127.0.0.1","joinLink":"tcp://…"}` or `{"running":false}` | `0` |
+| `link` | the current join link, one line (asks the backend, about 1.5 s) | `0`, `1` the backend didn't answer, `3` not running |
+| `status --json` | `{"running":true,"project":"/data/…/smoke","port":5990,"listenOn":"127.0.0.1","joinLink":"tcp://…","controllerConnected":true}` or `{"running":false}`. `controllerConnected`: some client is connected now (could be this app) | `0`, `1` the backend didn't answer |
 | `stop` | nothing | `0` (also when not running) |
 
 While a backend runs, Termux:API shows an ongoing notification "IntelliJ backend running" (`termux-notification --id intellij-backend`). Tapping it opens the app (`intellijandroid.client.android/.MainActivity`); its Stop button runs `intellij-backend stop`. Every backend runs under a small parent (`intellij-backend internal-run`) that shows the notification, waits for IntelliJ's launcher, and then removes the notification and releases the wake lock. `start` uses it directly; for Gateway and hand-typed starts, the launcher wrapper that `intellij-backend setup` puts in place of `bin/remote-dev-server.sh` does. So that happens whenever the backend exits for good (stop, crash, killed by Android), and not on IntelliJ's own restarts (exit code 88), which the launcher handles in a loop. So the app doesn't need its own notification for the backend.
@@ -81,5 +83,5 @@ Termux setup the app needs (one time, done by the user):
 
 ## Open
 
-- Whether a backend can hand out a second token without restarting (for a second device). Until then: one client identity per backend run.
-- `intellij-backend` is written (`backend/termux/intellij-backend`, 2026-11-16) and tested on the phone over SSH and through Termux's RUN_COMMAND (the app's Start). It sets `IDEA_JDK`, `REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS` and `TMPDIR` itself, because RUN_COMMAND and notification buttons don't read a shell profile. The `active/` status file of a running backend has `joinLink`, so `link` and `status` answer at once.
+- Two devices on one backend at the same time: not as two controlling clients (the second takes over). Code With Me guests might allow it; not looked into.
+- `intellij-backend` is written (`backend/termux/intellij-backend`, 2026-11-16) and tested on the phone over SSH and through Termux's RUN_COMMAND (the app's Start). It sets `IDEA_JDK`, `REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS` and `TMPDIR` itself, because RUN_COMMAND and notification buttons don't read a shell profile. `link` and `status` ask the running backend for the current token with IntelliJ's status command (about 1.5 s), because the `active/` status file keeps the first token after it has been used.
