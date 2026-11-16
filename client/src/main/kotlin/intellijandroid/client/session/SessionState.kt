@@ -89,6 +89,25 @@ data class SessionState(
     val scheme: EditorScheme? = null,
     /** The completion popup, if one is open. */
     val lookup: Lookup? = null,
+    /** The Structure tool window's tree, for the file the backend sees as selected. */
+    val structure: StructureTree = StructureTree(),
+)
+
+/**
+ * The structure of [path] as the backend sends it (`CodeStructureTreeModel.treeNodes`, docs/structure-protocol.md):
+ * [nodes] in pre-order, `nodes[0]` the root; each node's [StructureNode.children] are indexes into [nodes], not ids.
+ */
+data class StructureTree(val path: String? = null, val nodes: List<StructureNode> = emptyList())
+
+data class StructureNode(
+    /** The backend's id; new on every rebuild. */
+    val id: Int,
+    /** E.g. `hello(): void`, `name: String`. */
+    val name: String,
+    val iconPaths: List<String>,
+    /** Start of the element in the document; -1 when it isn't a PSI element (the file root). */
+    val offset: Int,
+    val children: List<Int>,
 )
 
 /**

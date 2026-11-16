@@ -104,9 +104,13 @@ fun ClientScreen(state: SessionState, session: ClientSession) {
             else -> setOfNotNull(windows.left, windows.right)
         }
 
+        // The backend builds the Structure tree only while the tool window shows.
+        val structureShown = ToolWindow.STRUCTURE in open
+        LaunchedEffect(structureShown) { session.setStructureVisible(structureShown) }
+
         @Composable
         fun Window(window: ToolWindow, onBack: (() -> Unit)?, modifier: Modifier) =
-            ToolWindowPanel(window, onBack, modifier.island()) { ToolWindowContent(window, state, session) }
+            ToolWindowPanel(window, onBack, modifier.island()) { ToolWindowContent(window, state, session, onNavigated = { onBack?.invoke() }) }
 
         Column(Modifier.fillMaxSize()) {
             MainToolbar(state.projectName, unsupported)
@@ -168,7 +172,7 @@ fun ClientScreen(state: SessionState, session: ClientSession) {
 private fun Modifier.island() = clip(RoundedCornerShape(IslandsDark.islandRadius)).background(IslandsDark.islandBackground)
 
 @Composable
-private fun ToolWindowContent(window: ToolWindow, state: SessionState, session: ClientSession) = when (window) {
+private fun ToolWindowContent(window: ToolWindow, state: SessionState, session: ClientSession, onNavigated: () -> Unit) = when (window) {
     ToolWindow.PROJECT -> ProjectTreeView(
         tree = state.tree,
         onToggle = { session.toggle(it.id) },
@@ -176,7 +180,7 @@ private fun ToolWindowContent(window: ToolWindow, state: SessionState, session: 
         onOpen = { node -> node.path?.takeIf { !node.isDirectory }?.let(session::open) },
         modifier = Modifier.fillMaxSize(),
     )
-    ToolWindow.STRUCTURE -> StructureView(state, session, Modifier.fillMaxSize())
+    ToolWindow.STRUCTURE -> StructureView(state, session, onNavigated, Modifier.fillMaxSize())
     else -> Unit
 }
 

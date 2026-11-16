@@ -27,6 +27,9 @@ across a rotation.
   project's initials, `smoke` → `SM`, and its name), then on the right the run widget ("Current File"), Build, Run,
   Debug and More. Only the project name is live; the others show "… isn't supported in this client yet" in the
   status line for 3 s.
+- **Tool windows that work**: Project, and Structure ([`structure-protocol.md`](structure-protocol.md)): the tree
+  of the selected file, all expanded; a tap selects and moves the caret (IntelliJ's "Navigate with Single Click"),
+  a double tap also slides back to the editor on a phone held upright.
 - **Tool window bar**: every button from IntelliJ's two stripes in one bar, in three groups split by separators:
   left stripe top (Project, Commit, Bookmarks), left stripe bottom (Services, Run, Debug, Problems, Git), right
   stripe (Structure, Notifications). Icons are IntelliJ's `expui/toolwindows/<name>@20x20.svg`, buttons 32 in a
@@ -75,8 +78,9 @@ open. Project is open at start, as before.
 
 On the Mac's Android emulator (Pixel 3a, API 34) against the isolated Mac backend, 2026-11-16 ~14:20 IST: landscape
 with Project open; phone portrait editor, swipe right → Project, swipe left twice → editor → Structure; tablet
-portrait (`adb shell wm density 240`) with Project and Structure side by side under the editor. Not yet on the
-user's phone.
+portrait (`adb shell wm density 240`) with Project and Structure side by side under the editor; Structure showed
+`Main.java › Main › main(String[]): void`, a tap on `main` moved the caret to line 4, and typing `int count` added
+`count: int`. Not yet on the user's phone.
 
 ## Testing notes
 

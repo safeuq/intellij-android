@@ -23,6 +23,7 @@ import com.jetbrains.rd.framework.Serializers
 import com.jetbrains.rd.ide.model.BasicIdeRootMarshallersProvider
 import com.jetbrains.rd.ide.model.CompositionIconModel
 import com.jetbrains.rd.ide.model.DeferredIconModel
+import com.jetbrains.rd.ide.model.EmptyIconModel
 import com.jetbrains.rd.ide.model.FailedRequestComposite
 import com.jetbrains.rd.ide.model.GutterMarkHighlighterModel
 import com.jetbrains.rd.ide.model.FileEditorManagerEventModel
@@ -63,6 +64,7 @@ import com.jetbrains.rd.ide.model.RdOpenSolution
 import com.jetbrains.rd.ide.model.fileEditorsModel
 import com.jetbrains.rd.ide.model.requestResponseModel
 import com.jetbrains.rd.ide.model.solutionModel
+import com.jetbrains.rd.ide.model.codeStructureTreeModel
 import com.jetbrains.rd.util.lifetime.Lifetime
 import com.jetbrains.rd.util.lifetime.LifetimeDefinition
 import com.jetbrains.rd.util.reactive.IScheduler
@@ -335,8 +337,37 @@ class ClientSession(
                 deferred.model.advise(compositeLifetime) { composite -> composite.visible.set(compositeId == selectedEditorId?.compositeId) }
             }
             createProjectView(solutionLifetime, newSolution)
+            bindStructure(solutionLifetime, newSolution)
             newSolution.isLoaded.advise(solutionLifetime) { loaded -> if (loaded && initialFile != null) openFile(initialFile) }
         }
+    }
+
+    /** Whether the Structure tool window is showing; the backend builds the tree only while it is. */
+    private var structureVisible = false
+
+    fun setStructureVisible(visible: Boolean) = onRd {
+        structureVisible = visible
+        val current = solution ?: return@onRd
+        current.codeStructureTreeModel.toolWindowVisible.set(visible)
+        // The backend's structure host answers "no editor" until it sees a selection event after it started listening,
+        // and the one sent when the file opened came too early. So tell it again (docs/structure-protocol.md).
+        if (visible) selectedEditorId?.let { editorId -> current.fileEditorsModel.selectionChanged.fire(FileEditorManagerEventModel(OriginKind.Frontend, null, editorId)) }
+    }
+
+    /**
+     * The Structure tool window's model (docs/structure-protocol.md): the backend builds the tree for the editor it sees
+     * as selected, sends it whole, and sends it again after every change to the file.
+     */
+    private fun bindStructure(solutionLifetime: Lifetime, solution: Solution) {
+        val model = solution.codeStructureTreeModel
+        model.treeNodes.advise(solutionLifetime) { list ->
+            val nodes = list.treeNodes.filterNot { it.isFromRelatedFile }.map { node ->
+                StructureNode(node.id, node.shortName.ifBlank { node.name }, node.icon?.let(::iconPaths).orEmpty(), node.offset.takeIf { node.navigable } ?: -1, node.children)
+            }
+            val path = list.documentTimestamp?.documentId?.takeIf { nodes.isNotEmpty() }?.let(::pathOf)
+            mutableState.update { it.copy(structure = StructureTree(path, nodes)) }
+        }
+        model.toolWindowVisible.set(structureVisible)
     }
 
     private fun createProjectView(solutionLifetime: Lifetime, solution: Solution) {
@@ -526,6 +557,8 @@ class ClientSession(
             is CompositionIconModel -> icon.subNodes.flatMap(::iconPaths)
             // Shown until the real icon is computed; the backend sends the final one as an item update.
             is DeferredIconModel -> icon.baseIcon?.let(::iconPaths).orEmpty()
+            // A blank slot, e.g. the visibility place in a Structure row's icon.
+            is EmptyIconModel -> emptyList()
             else -> {
                 if (unhandledIconTypes.add(icon::class.simpleName.orEmpty())) println("Icon type not handled yet: $icon")
                 emptyList()
