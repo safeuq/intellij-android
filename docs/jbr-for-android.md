@@ -1,6 +1,6 @@
 # JBR for Android (Termux): build plan
 
-> This is the working plan and log from the first build, kept as written. Paths refer to the original working folder: `termux-packages/packages/jbr-25/` is now `jbr/termux-package/jbr-25/`, `docker/` is now `jbr/docker/` and `jbr/scripts/`, and builds now run through `jbr/scripts/build.sh` (see the README).
+> This is the working plan and log from the first build, kept as written. Paths refer to the original working folder: `termux-packages/packages/jbr-25/` is now `jbr/termux-package/jbr-25/`, `docker/` is now `jbr/docker/` and `jbr/scripts/`, and builds now run through `jbr/scripts/build.sh` (see [`building-jbr.md`](building-jbr.md)).
 
 ## Goal
 
@@ -184,7 +184,7 @@ If check 3 fails with an AWT or native-library error, go back to step 3 and choo
 
 ## Follow-up: native file watcher (`fsnotifier`) for bionic
 
-Done 2026-11-15, see `backend/fsnotifier/README.md`.
+Done 2026-11-15, see [`fsnotifier.md`](fsnotifier.md).
 
 Correction to what this section first said: the bundled `bin/fsnotifier` is statically linked, not a glibc binary, and it starts on the phone. It gives up at once because Android doesn't let apps read `/proc/sys/fs/inotify/max_user_watches` (backend log: `can't open /proc/sys/fs/inotify/max_user_watches: Permission denied`, then `File watcher gave up to operate`). The `Native file watcher is disabled` line came from the `inspect.sh` run, which runs IntelliJ as a command-line tool, and IntelliJ never starts the watcher there.
 

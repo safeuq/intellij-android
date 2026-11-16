@@ -17,7 +17,7 @@ Android doesn't let apps read that file, and `fsnotifier` treats a missing watch
 backend/fsnotifier/build.sh      # writes output/fsnotifier (aarch64, API 24)
 ```
 
-It downloads the four source files at `intellij-community` commit `1725b9d80229df4741d8089ba0011a8911e472d2` (the last change to `native/fsNotifier/linux`) into `work/fsnotifier/src`, applies the patches below, and compiles with `aarch64-linux-android24-clang` and the flags from JetBrains' `make.sh`. The script stops if a `.patch` file isn't named in this file.
+It downloads the four source files at `intellij-community` commit `1725b9d80229df4741d8089ba0011a8911e472d2` (the last change to `native/fsNotifier/linux`) into `work/fsnotifier/src`, applies the patches below, and compiles with `aarch64-linux-android24-clang` and the flags from JetBrains' `make.sh`. The script stops if a `.patch` file in `backend/fsnotifier/` isn't named in this file.
 
 ## Use
 

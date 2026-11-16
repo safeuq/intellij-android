@@ -194,7 +194,7 @@ EOF
 use_android_fsnotifier() {
 	local -r intellij_home="$1"
 	if [[ ! -x "$FSNOTIFIER_PATH" ]]; then
-		echo "No $FSNOTIFIER_PATH: IntelliJ will find file changes by rescanning (see backend/fsnotifier/README.md)"
+		echo "No $FSNOTIFIER_PATH: IntelliJ will find file changes by rescanning (see docs/fsnotifier.md)"
 		return
 	fi
 	local -r data_directory_name="$(jq -r '.dataDirectoryName' "$intellij_home/product-info.json")"

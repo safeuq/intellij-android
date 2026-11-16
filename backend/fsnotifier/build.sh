@@ -2,7 +2,7 @@
 # Builds IntelliJ's Linux file watcher (fsnotifier) for Android (aarch64, API 24) with the Android NDK.
 #
 # Downloads the pinned source files from intellij-community into work/fsnotifier/src, applies our
-# patches (backend/fsnotifier/*.patch, each named in backend/fsnotifier/README.md) and writes
+# patches (backend/fsnotifier/*.patch, each named in docs/fsnotifier.md) and writes
 # output/fsnotifier.
 #
 # Needs the Android NDK: ANDROID_NDK_HOME, or the newest NDK under ~/Library/Android/sdk/ndk
@@ -47,10 +47,10 @@ if [[ ! -x "$compiler" ]]; then
 	exit 1
 fi
 
-# Every patch must be named in README.md, so no change goes unrecorded.
+# Every patch must be named in docs/fsnotifier.md, so no change goes unrecorded.
 for patch_file in "$recipe_dir"/*.patch; do
-	if ! grep -qF "$(basename "$patch_file")" "$recipe_dir/README.md"; then
-		echo "$(basename "$patch_file") is not named in backend/fsnotifier/README.md" >&2
+	if ! grep -qF "$(basename "$patch_file")" "$repository_root/docs/fsnotifier.md"; then
+		echo "$(basename "$patch_file") is not named in docs/fsnotifier.md" >&2
 		exit 1
 	fi
 done

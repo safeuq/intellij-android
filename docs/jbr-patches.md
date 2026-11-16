@@ -1,4 +1,4 @@
-# Patches in `termux-package/jbr-25/`
+# Patches in `jbr/termux-package/jbr-25/`
 
 Applied by Termux's build in file-name order (`0001` … `1004`), then `tmpdir-path-length.diff` in the recipe's `termux_step_pre_configure`.
 

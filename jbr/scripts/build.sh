@@ -23,7 +23,7 @@ readonly BUILDER_CONTAINER_NAME="intellij-android-builder"
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly termux_packages_dir="${TERMUX_PACKAGES_DIR:-$repository_root/work/termux-packages}"
 readonly recipe_dir="$repository_root/jbr/termux-package/$PACKAGE_NAME"
-readonly patches_notes="$repository_root/jbr/PATCHES.md"
+readonly patches_notes="$repository_root/docs/jbr-patches.md"
 # Termux's package whose patches ours start from
 readonly UPSTREAM_PACKAGE_NAME="openjdk-25"
 readonly tar_wrapper="$repository_root/jbr/docker/tar-rosetta-wrapper.sh"
@@ -58,7 +58,7 @@ fetch_termux_packages() {
 }
 
 # Every patch that differs from Termux's (altered, ours, or left out) must be named in
-# PATCHES.md, so no change goes unrecorded.
+# docs/jbr-patches.md, so no change goes unrecorded.
 check_patches_documented() {
 	local upstream_dir="$termux_packages_dir/packages/$UPSTREAM_PACKAGE_NAME"
 	local -a undocumented=()
@@ -82,7 +82,7 @@ check_patches_documented() {
 	done
 
 	if [[ ${#undocumented[@]} -gt 0 ]]; then
-		echo "Patches that differ from Termux's $UPSTREAM_PACKAGE_NAME but are not named in jbr/PATCHES.md:" >&2
+		echo "Patches that differ from Termux's $UPSTREAM_PACKAGE_NAME but are not named in docs/jbr-patches.md:" >&2
 		printf '  %s\n' "${undocumented[@]}" >&2
 		exit 1
 	fi

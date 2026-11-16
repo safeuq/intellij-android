@@ -577,7 +577,7 @@ IJ_JAVA_OPTIONS="-Didea.config.path=$BACKEND/config -Didea.system.path=$BACKEND/
   "$HOME/Applications/IntelliJ IDEA.app/Contents/bin/remote-dev-server.sh" run "$BACKEND/smoke" --listenOn 127.0.0.1 --port 5990
 ```
 
-Running the client: see `client/README.md`.
+Running the client: see [`client.md`](client.md).
 
 ### Not done yet
 
@@ -761,7 +761,7 @@ After that the session works as a new one: Project tree, editor, highlighting, t
 
 **Except the autopopup.** On a reconnected client id, the backend closes `autopopupRequests` right away, every time it is called: `producerCancelled: … CancellationException: cancelled with reason`. The cause is in the backend (`BackendAutopopupScheduler`, `intellij.platform.completion.backend.split.jar`): `getRequestFlow()` is `channel.consumeAsFlow()` on one channel per client id, and a `consumeAsFlow` channel can be collected once. When the old connection's collector ended, the channel was cancelled with it. **Inferred** from the bytecode plus the log; JetBrains Client never meets this, because a restarted JetBrains Client makes a new client id (and a new `jt` is needed). The client handles it: when that stream closes, it asks for the autopopup itself after a typed letter or `.` (`StartRequest` with `invocationCount` 0 once the edit is answered). The backend's typed handler also skips the autopopup in strings and comments; the client relies on the backend answering with no items there.
 
-The desktop client stores its identity too when started with `CLIENT_IDENTITY=<file>` (see `client/README.md`).
+The desktop client stores its identity too when started with `CLIENT_IDENTITY=<file>` (see [`client.md`](client.md)).
 
 ### Not done yet
 

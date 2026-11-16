@@ -1,6 +1,6 @@
 # Android app
 
-The split-mode client as an Android app. It compiles the desktop client's shared code (`../src/main/kotlin`: connection, session, UI) and adds only the Android pieces: the connect screen (link prompt, backends on this phone, history; Termux commands), fonts and icons from assets, and the soft keyboard hook. How it works and what was tested: [`docs/split-protocol.md`](../../docs/split-protocol.md), "The Android app (step 5)".
+The split-mode client as an Android app. It compiles the desktop client's shared code (`client/src/main/kotlin`: connection, session, UI; see [`client.md`](client.md)) and adds only the Android pieces: the connect screen (link prompt, backends on this phone, history; Termux commands), fonts and icons from assets, and the soft keyboard hook. How it works and what was tested: [`split-protocol.md`](split-protocol.md), "The Android app (step 5)".
 
 ## Build
 
@@ -18,11 +18,11 @@ cd client/android
 adb install -r build/outputs/apk/debug/intellij-android-app-debug.apk
 ```
 
-The protocol jars are patched for ART on the way (class file version, `sun.misc.Unsafe` in rd's `UnsafeBuffer`); `rd-patch/` holds the shim.
+The protocol jars are patched for ART on the way (class file version, `sun.misc.Unsafe` in rd's `UnsafeBuffer`); `client/android/rd-patch/` holds the shim.
 
 ## Run
 
-The app opens on the connect screen ([`docs/connections.md`](../../docs/connections.md)):
+The app opens on the connect screen ([`connections.md`](connections.md)):
 
 | Part | What it does |
 |---|---|
