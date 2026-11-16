@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
     private var file by mutableStateOf("")
     private var message by mutableStateOf<String?>(null)
     private var busy by mutableStateOf<String?>(null)
-    private var startProject by mutableStateOf<String?>(null)
+    private var page by mutableStateOf(ConnectPage.PHONE)
     private var saved by mutableStateOf(emptyList<SavedConnection>())
     private var localBackends by mutableStateOf(emptyList<DiscoveredBackend>())
     private var termuxAccess by mutableStateOf(TermuxAccess.NOT_INSTALLED)
@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
         history = ConnectionHistory(this)
         termux = Termux(this)
         saved = history.entries()
+        if (!termux.isInstalled) page = ConnectPage.LINK
         link = preferences.getString("joinLink", "").orEmpty()
         file = preferences.getString("openFile", "").orEmpty()
         intent.getStringExtra("joinLink")?.let { extra -> connectLink(extra, intent.getStringExtra("openFile")) }
@@ -83,8 +84,9 @@ class MainActivity : ComponentActivity() {
             openSaved = ::openSaved,
             removeSaved = { entry -> history.remove(entry); saved = history.entries() },
             allowTermux = { termuxPermission.launch(Termux.PERMISSION) },
-            startChanged = { startProject = it },
-            startInTermux = ::startInTermux,
+            pageChanged = { page = it },
+            newProject = ::startInTermux,
+            stopTermux = ::stopTermux,
             listFolders = { path, onResult -> termux.listFolders(path, onResult) },
             refresh = ::refresh,
             answerQuestion = { question?.onConfirm?.invoke() },
@@ -98,7 +100,7 @@ class MainActivity : ComponentActivity() {
                     val current = session
                     if (current == null) {
                         LaunchedEffect(Unit) { refresh() }
-                        ConnectScreen(ConnectScreenState(link, file, localBackends, saved, termuxAccess, busy, message, startProject, question, starting), actions, fonts)
+                        ConnectScreen(ConnectScreenState(page, link, file, localBackends, saved, termuxAccess, busy, message, question, starting), actions, fonts)
                     } else {
                         val state by current.state.collectAsState()
                         LaunchedEffect(state.connectionLost) {
@@ -155,7 +157,6 @@ class MainActivity : ComponentActivity() {
         attempt = current
         accepted = false
         message = null
-        startProject = null
         question = null
         session = ClientSession(joinLink, openFile, certificate) { acceptedCertificate ->
             val encoded = acceptedCertificate.encode()
@@ -218,6 +219,7 @@ class MainActivity : ComponentActivity() {
             backend.joinLink != null -> openTermux(backend.project)
             known != null -> openSaved(known)
             else -> {
+                page = ConnectPage.LINK
                 link = "tcp://${backend.host}:${backend.port}#"
                 message = "Paste the join link of the backend on port ${backend.port}. In Termux, `intellij-backend link` prints it."
             }
@@ -245,7 +247,9 @@ class MainActivity : ComponentActivity() {
                     val status = runCatching { JSONObject(output.stdout) }.getOrNull()
                     when {
                         output.exitCode != 0 || status == null -> message = "intellij-backend status failed (exit ${output.exitCode}): ${output.stderr.ifBlank { output.stdout }}"
-                        !status.optBoolean("running") -> startProject = project ?: "${Termux.HOME}/"
+                        // Like Gateway: opening a project whose backend isn't running starts it.
+                        !status.optBoolean("running") ->
+                            if (project != null) startInTermux(project) else message = "No backend is running in Termux. Tap New Project to start one."
                         else -> {
                             val joinLink = status.getString("joinLink")
                             val running = status.optString("project")
@@ -262,12 +266,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startInTermux() {
-        val project = startProject?.trim().orEmpty()
-        if (project.isEmpty()) {
-            message = "Enter the project folder to start the backend for."
-            return
-        }
+    private fun startInTermux(project: String) {
         if (busy != null || starting != null) return
         message = null
         starting = project
@@ -284,6 +283,20 @@ class MainActivity : ComponentActivity() {
                 },
                 onFailure = { failure -> message = failure.message },
             )
+        }
+    }
+
+    /** The red square next to a running project. */
+    private fun stopTermux() {
+        if (busy != null) return
+        busy = "Stopping the backend in Termux…"
+        termux.run(listOf("stop")) { result ->
+            busy = null
+            result.fold(
+                onSuccess = { output -> if (output.exitCode != 0) message = "intellij-backend stop failed (exit ${output.exitCode}): ${output.stderr}" },
+                onFailure = { failure -> message = failure.message },
+            )
+            refresh()
         }
     }
 
@@ -339,10 +352,8 @@ class MainActivity : ComponentActivity() {
                             val port = status.getInt("port")
                             val backend = DiscoveredBackend("This phone · ${project.substringAfterLast('/')}", port, project, status.getString("joinLink"))
                             localBackends = listOf(backend) + localBackends.filter { it.port != port }
-                            startProject = null
                         }
-                        // Nothing running: offer to start one, for the last Termux project or a folder under Termux's home.
-                        startProject == null -> startProject = saved.firstOrNull { it.kind == ConnectionKind.TERMUX }?.project ?: "${Termux.HOME}/"
+                        else -> localBackends = localBackends.filter { it.joinLink == null }
                     }
                 },
                 onFailure = { failure -> message = failure.message },

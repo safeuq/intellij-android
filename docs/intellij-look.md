@@ -356,3 +356,19 @@ From a 2x screenshot of IntelliJ's "Open File or Project" dialog (`FileChooserDi
 | Browse icon in a text field (`TextFieldWithBrowseButton`) | `expui/inline/browse.svg` |
 
 Left out in the app: Desktop, New Folder, Delete, the path history drop-down, the help button, and the drag-and-drop hint.
+
+## 10. Connect screen: Gateway's welcome window
+
+The connect screen copies JetBrains Gateway 2026.3's "Welcome to JetBrains Gateway" window and its project ⋮ menu,
+measured on 2x screenshots (pt = dp). Code: `client/android/.../ConnectScreen.kt`, object `Gateway`.
+
+| Part | Gateway | Ours |
+|---|---|---|
+| Sidebar | 224 wide; "Connections" label, rows 33 high, icon 17 in; selected row full width `#2E436E` | Same; 32 % of the width, at least 132, on a narrow screen. Rows: This phone (`expui/nodes/ssh.svg`), divider, Link (Markdown plugin's chain icon) |
+| Header | Title 25 in, centred 37.5 down, divider at 63.5; New Project 133 × 27, 27.5 from the right | "Recent Termux Projects" / "Connect by Link"; New Project without the drop-down |
+| Search | 44 high, `searchHistory` icon 7.5 in, text at 32 | Same; filters the rows by path |
+| Host group | Bold host 25 in, centred 31 below the search divider; icons every 25.5, last centred 44.5 from the right | "This phone" with + (New Project) and Refresh; link hosts as `host:port` |
+| Project row | 39 high; product icon 25 in, path in link blue at 50; status 18 after the path: "Running" green with a red stop square, or "Last active: 17 minutes ago"; ⋮ | Same, `expui/nodes/ideaProject.svg`; paths under Termux's home shortened to `~/…` |
+| ⋮ menu | 237 wide, radius 8, `#2B2D30`, rows 24, text 20 in; Open With, Remove from Recent Projects, Collect Host and Client Logs | Remove from Recent Projects only |
+
+Left out: the logo and version, All Providers, the settings gear, New Project's drop-down, Open With and log collection.
