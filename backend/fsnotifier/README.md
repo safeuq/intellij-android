@@ -25,7 +25,7 @@ Copy it to the phone and point IntelliJ at it in the `idea.properties` file of I
 
 ```sh
 scp -P 8022 output/fsnotifier <phone-address>:intellij/fsnotifier
-# on the phone:
+# on the phone; intellij-backend setup adds the same line to the right config folder:
 echo "idea.filewatcher.executable.path=$HOME/intellij/fsnotifier" >> ~/.config/JetBrains/IntelliJIdea2026.3/idea.properties
 ```
 

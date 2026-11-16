@@ -5,6 +5,7 @@
 #   intellij-backend link                                   prints the running backend's join link
 #   intellij-backend status [--json]                        running or not, project, port, join link
 #   intellij-backend stop                                   stops the running backend
+#   intellij-backend setup                                  one-time setup in Termux (safe to repeat)
 #
 # Exit codes: 0 ok, 1 failed, 2 usage, 3 not running, 4 another IntelliJ uses the same settings.
 #
@@ -14,7 +15,9 @@
 # JetBrains Gateway reads over SSH.
 #
 # While a backend runs, Termux:API shows an ongoing notification with a Stop button (needs the
-# Termux:API app; without it the backend still runs, just without the notification).
+# Termux:API app; without it the backend still runs, just without the notification). `setup`
+# puts a wrapper in place of IntelliJ's bin/remote-dev-server.sh, so this also happens for
+# backends that JetBrains Gateway or a hand-typed `remote-dev-server.sh run` starts.
 #
 # IntelliJ install: $INTELLIJ_HOME, or the only ~/intellij/idea-*/ folder.
 
@@ -30,6 +33,10 @@ readonly START_TIMEOUT_SECONDS=180
 readonly STOP_TIMEOUT_SECONDS=60
 readonly NOTIFICATION_ID="intellij-backend"
 readonly ANDROID_APP_ACTIVITY="intellijandroid.client.android/.MainActivity"
+# setup moves IntelliJ's launcher here and puts a wrapper in its place.
+readonly REAL_LAUNCHER_NAME="remote-dev-server.real.sh"
+readonly WRAPPER_MARKER="Written by intellij-backend setup"
+readonly FSNOTIFIER_PATH="$HOME/intellij/fsnotifier"
 
 # Every IntelliJ command here (run and stop) needs our bionic JBR: IntelliJ's bundled JBR is
 # built for glibc and fails at once (/lib/ld-linux-aarch64.so.1: not found). Set here, not in
@@ -52,7 +59,7 @@ fail() {
 }
 
 usage() {
-	sed -n '4,7s/^# \{0,1\}//p' "$0" >&2
+	sed -n '4,8s/^# \{0,1\}//p' "$0" >&2
 	exit "$EXIT_USAGE"
 }
 
@@ -98,14 +105,14 @@ other_intellij_pid() {
 
 # termux-notification waits forever when the Termux:API app is missing, hence the timeout.
 show_notification() {
-	local -r project="$1" address="$2"
+	local -r project_name="$1"
 	timeout 10 termux-notification \
 		--id "$NOTIFICATION_ID" \
 		--ongoing \
 		--alert-once \
 		--priority low \
 		--title "IntelliJ backend running" \
-		--content "$(basename "$project") on $address" \
+		--content "$project_name" \
 		--action "am start -n $ANDROID_APP_ACTIVITY" \
 		--button1 "Stop" \
 		--button1-action "$TERMUX_PREFIX/bin/intellij-backend stop" \
@@ -117,14 +124,119 @@ release_backend_resources() {
 	termux-wake-unlock 2>/dev/null || true
 }
 
-# The backend's parent: runs IntelliJ's launcher, waits for it, then removes the notification and
-# releases the wake lock. The launcher outlives IntelliJ's own restarts (exit code 88 starts a new
-# JVM) and exits only when the backend is gone for good: stop, crash, or killed by Android.
+# The backend's parent, for every way it starts (start, the launcher wrapper for Gateway or by
+# hand): takes the wake lock, shows the notification, runs IntelliJ's launcher, waits for it, then
+# removes the notification and releases the wake lock. The launcher outlives IntelliJ's own
+# restarts (exit code 88 starts a new JVM) and exits only when the backend is gone for good:
+# stop, crash, or killed by Android.
 command_run() {
+	[[ $# -ge 1 ]] || usage
 	local -r launcher="$1"
 	shift
+	# `run <project> [options]`; without a project IntelliJ opens none.
+	local project_name="no project"
+	[[ $# -ge 1 && "$1" != -* ]] && project_name="$(basename "$1")"
+	# Tells the launcher wrapper that this is already the parent.
+	export INTELLIJ_BACKEND_RUN=1
+	# Keeps Android from suspending Termux while the screen is off.
+	termux-wake-lock 2>/dev/null || true
+	show_notification "$project_name"
 	"$launcher" run "$@" || true
 	release_backend_resources
+}
+
+# In place of IntelliJ's bin/remote-dev-server.sh: sets our JBR for every command (Gateway runs
+# status, registerBackendLocationForGateway and others too) and sends `run` through
+# `intellij-backend internal-run`. Rewritten on every setup; a launcher without the marker is
+# IntelliJ's own (a fresh or updated install) and is moved aside first.
+install_launcher_wrapper() {
+	local -r intellij_bin="$1"
+	local -r launcher="$intellij_bin/remote-dev-server.sh"
+	if ! grep -qF "$WRAPPER_MARKER" "$launcher"; then
+		mv "$launcher" "$intellij_bin/$REAL_LAUNCHER_NAME"
+	fi
+	[[ -x "$intellij_bin/$REAL_LAUNCHER_NAME" ]] || fail "$EXIT_FAILED" "IntelliJ's launcher is missing: $intellij_bin/$REAL_LAUNCHER_NAME"
+	cat >"$launcher" <<EOF
+#!$TERMUX_PREFIX/bin/sh
+# $WRAPPER_MARKER (backend/termux/intellij-backend in intellij-backend-android).
+# IntelliJ's own launcher is $REAL_LAUNCHER_NAME next to this file. This sets the Android JBR for
+# every command, and runs "run" under intellij-backend, which shows the notification while the
+# backend runs.
+export IDEA_JDK="$JBR_HOME"
+export REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0
+export TMPDIR="\${TMPDIR:-$TERMUX_PREFIX/tmp}"
+export REMOTE_DEV_LAUNCHER_NAME_FOR_USAGE="\${REMOTE_DEV_LAUNCHER_NAME_FOR_USAGE:-remote-dev-server.sh}"
+real_launcher="\$(dirname "\$0")/$REAL_LAUNCHER_NAME"
+if [ "\${1:-}" = run ] && [ -z "\${INTELLIJ_BACKEND_RUN:-}" ]; then
+	shift
+	exec "$TERMUX_PREFIX/bin/intellij-backend" internal-run "\$real_launcher" "\$@"
+fi
+exec "\$real_launcher" "\$@"
+EOF
+	chmod 755 "$launcher"
+	echo "IntelliJ's launcher wrapped: $launcher"
+}
+
+use_android_fsnotifier() {
+	local -r intellij_home="$1"
+	if [[ ! -x "$FSNOTIFIER_PATH" ]]; then
+		echo "No $FSNOTIFIER_PATH: IntelliJ will find file changes by rescanning (see backend/fsnotifier/README.md)"
+		return
+	fi
+	local -r data_directory_name="$(jq -r '.dataDirectoryName' "$intellij_home/product-info.json")"
+	local -r properties_file="$HOME/.config/JetBrains/$data_directory_name/idea.properties"
+	local -r property="idea.filewatcher.executable.path=$FSNOTIFIER_PATH"
+	mkdir -p "$(dirname "$properties_file")"
+	touch "$properties_file"
+	if ! grep -qxF "$property" "$properties_file"; then
+		sed -i '/^idea\.filewatcher\.executable\.path=/d' "$properties_file"
+		echo "$property" >>"$properties_file"
+	fi
+	echo "File watcher: $FSNOTIFIER_PATH (in $properties_file)"
+}
+
+# Lets Gateway over SSH use this install instead of downloading its own (glibc) IntelliJ. IntelliJ's
+# command exits with an error when the install is already registered, so check its links first.
+register_with_gateway() {
+	local -r launcher="$1" intellij_home="$2"
+	local link
+	for link in "$HOME/.cache/JetBrains/RemoteDev/userProvidedDist"/*; do
+		if [[ "$(readlink "$link")" == "$intellij_home" ]]; then
+			echo "Registered with JetBrains Gateway: $intellij_home"
+			return
+		fi
+	done
+	"$launcher" registerBackendLocationForGateway >/dev/null 2>&1 \
+		|| fail "$EXIT_FAILED" "registerBackendLocationForGateway failed; run it by hand to see why: $launcher registerBackendLocationForGateway"
+	echo "Registered with JetBrains Gateway: $intellij_home"
+}
+
+command_setup() {
+	[[ $# -eq 0 ]] || usage
+	[[ -x "$JBR_HOME/bin/java" ]] || fail "$EXIT_FAILED" "jbr-25 is not installed ($JBR_HOME): apt install ./jbr-25_*_aarch64.deb"
+	local -a missing_packages=()
+	command -v jq >/dev/null || missing_packages+=(jq)
+	command -v termux-notification >/dev/null || missing_packages+=(termux-api)
+	if [[ ${#missing_packages[@]} -gt 0 ]]; then
+		echo "Installing ${missing_packages[*]}"
+		pkg install -y "${missing_packages[@]}"
+	fi
+	local -r launcher="$(intellij_launcher)"
+	local -r intellij_bin="$(dirname "$launcher")"
+	local -r intellij_home="$(dirname "$intellij_bin")"
+
+	install_launcher_wrapper "$intellij_bin"
+	use_android_fsnotifier "$intellij_home"
+	register_with_gateway "$launcher" "$intellij_home"
+
+	echo
+	echo "Left to you (Android settings this script can't change):"
+	if ! grep -qE '^[[:space:]]*allow-external-apps[[:space:]]*=[[:space:]]*true' "$HOME/.termux/termux.properties" 2>/dev/null; then
+		echo "- For the Android app: allow-external-apps = true in ~/.termux/termux.properties, then termux-reload-settings"
+	fi
+	echo "- Termux and Termux:API: battery usage Unrestricted (Termux asks the first time it takes a wake lock)"
+	echo "- Android 14+: Developer options > Disable child process restrictions, so Android doesn't kill the backend"
+	echo "- Termux:API app installed (F-Droid or GitHub, same source as Termux), for the notification"
 }
 
 command_start() {
@@ -166,8 +278,6 @@ command_start() {
 
 	mkdir -p "$LOG_DIR"
 	local -r log_file="$LOG_DIR/backend-$(date +%Y%m%d-%H%M%S).log"
-	# Keeps Android from suspending Termux while the screen is off.
-	termux-wake-lock 2>/dev/null || true
 	# setsid: its own session, so it outlives the SSH session or Termux command that started it.
 	setsid "$0" internal-run "$launcher" "$project" --listenOn "$listen_address" --port "$port" \
 		</dev/null >"$log_file" 2>&1 &
@@ -177,7 +287,6 @@ command_start() {
 	while [[ $waited_seconds -lt $START_TIMEOUT_SECONDS ]]; do
 		status_file="$(running_status_file)"
 		if [[ -n "$status_file" && "$(project_of "$status_file")" == "$project" ]]; then
-			show_notification "$project" "$listen_address:$port"
 			join_link_of "$status_file"
 			return
 		fi
@@ -261,15 +370,17 @@ command_stop() {
 }
 
 main() {
-	command -v jq >/dev/null || fail "$EXIT_FAILED" "jq is required: pkg install jq"
 	[[ $# -ge 1 ]] || usage
 	local -r command="$1"
 	shift
+	# setup installs jq itself.
+	[[ "$command" == setup ]] || command -v jq >/dev/null || fail "$EXIT_FAILED" "jq is required: pkg install jq (or run intellij-backend setup)"
 	case "$command" in
 		start) command_start "$@" ;;
 		link) command_link "$@" ;;
 		status) command_status "$@" ;;
 		stop) command_stop "$@" ;;
+		setup) command_setup "$@" ;;
 		# internal: started by start, see command_run
 		internal-run) command_run "$@" ;;
 		-h | --help | help) usage ;;

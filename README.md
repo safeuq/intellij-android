@@ -54,22 +54,30 @@ In Termux (aarch64), with the start script:
 
 ```sh
 apt install ./jbr-25_25.0.4.1_aarch64.deb          # installs to $PREFIX/lib/jvm/jbr-25
-pkg install jq termux-api   # termux-api also needs the Termux:API app, for the notification
-install -m 755 backend/termux/intellij-backend $PREFIX/bin/   # copy it to the phone first
-
 # IntelliJ IDEA 2026.3, linux-aarch64 build, unpacked to ~/intellij/idea-IU-263.7307.200
+# optional: the Android file watcher (backend/fsnotifier/build.sh) copied to ~/intellij/fsnotifier
+install -m 755 backend/termux/intellij-backend $PREFIX/bin/   # copy it to the phone first
+intellij-backend setup     # once, and again after installing another IntelliJ; safe to repeat
+
 intellij-backend start ~/path/to/project      # prints the join link once ready; --lan listens on 0.0.0.0
 intellij-backend status                       # or: status --json, link
 intellij-backend stop
 ```
 
-It finds the IntelliJ under `~/intellij/idea-*/` (or `$INTELLIJ_HOME`), sets `IDEA_JDK` and `REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0` itself, takes Termux's wake lock while the backend runs, shows an ongoing notification with a Stop button (tapping it opens the Android app), and keeps the backend running after the shell or SSH session that started it ends. Logs: `~/.local/state/intellij-backend/`. Status comes from IntelliJ's own files in `~/.cache/JetBrains/RemoteDev/active/`. It refuses to start (exit `4`) while another IntelliJ runs with the same settings, e.g. the desktop IntelliJ.
+`setup` does everything in Termux:
 
-The same by hand:
+- installs `jq` and `termux-api` if missing;
+- moves IntelliJ's `bin/remote-dev-server.sh` to `bin/remote-dev-server.real.sh` and puts a wrapper in its place. The wrapper sets `IDEA_JDK`, `REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0` and `TMPDIR` for every IntelliJ command, and runs `run` under `intellij-backend`, so a backend started any way (the app, `start`, Gateway, by hand) gets the notification;
+- points IntelliJ at `~/intellij/fsnotifier` in `idea.properties`, when it's there;
+- registers the install with JetBrains Gateway.
+
+It then lists the Android settings it can't change: `allow-external-apps` for the app, battery usage Unrestricted for Termux and Termux:API, and "Disable child process restrictions" in Developer options (Android 14+), so Android doesn't kill the backend. The Termux:API app itself comes from the same source as Termux (F-Droid or GitHub).
+
+`intellij-backend` finds the IntelliJ under `~/intellij/idea-*/` (or `$INTELLIJ_HOME`), sets `IDEA_JDK` and `REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0` itself, takes Termux's wake lock while the backend runs, shows an ongoing notification with a Stop button (tapping it opens the Android app), and keeps the backend running after the shell or SSH session that started it ends. Logs: `~/.local/state/intellij-backend/`. Status comes from IntelliJ's own files in `~/.cache/JetBrains/RemoteDev/active/`. It refuses to start (exit `4`) while another IntelliJ runs with the same settings, e.g. the desktop IntelliJ.
+
+The same by hand (after `setup`; without it, first `export IDEA_JDK=$PREFIX/lib/jvm/jbr-25` and `export REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0`, else the launcher uses its bundled glibc JBR):
 
 ```sh
-export IDEA_JDK=$PREFIX/lib/jvm/jbr-25
-export REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0   # else the launcher swaps in the bundled glibc JBR
 ~/intellij/idea-IU-263.7307.200/bin/remote-dev-server.sh run ~/path/to/project \
   --listenOn 0.0.0.0 \
   --port 5990
@@ -87,18 +95,7 @@ ssh -p 8022 -N -L 127.0.0.1:5990:127.0.0.1:5990 <phone-address>
 
 Gateway can start the backend on the phone itself and carry the connection inside its SSH session, so no join link and no port tunnel are needed. Tested 2026-11-16 with Gateway 263.7307.184: the backend ran on `jbr-25`, and JetBrains Client opened the project with full highlighting.
 
-One-time setup in Termux:
-
-```sh
-# Gateway's commands run through a non-interactive shell; zsh reads ~/.zshenv for those too
-# (with bash as the login shell, use ~/.bashrc).
-cat >> ~/.zshenv <<'EOF'
-export IDEA_JDK=$PREFIX/lib/jvm/jbr-25
-export REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0
-EOF
-# lets Gateway find this install instead of downloading its own (glibc) IntelliJ
-~/intellij/idea-IU-263.7307.200/bin/remote-dev-server.sh registerBackendLocationForGateway
-```
+Setup in Termux: `intellij-backend setup` (above). It registers the install with Gateway, so Gateway uses it instead of downloading its own (glibc) IntelliJ, and its launcher wrapper sets the JBR for Gateway's commands, so no shell profile is needed. Tested 2026-11-16: a Gateway start went through the wrapper and showed the notification.
 
 Then open this link on the Mac, with the phone's address and SSH port (Termux's `whoami` is the user):
 
