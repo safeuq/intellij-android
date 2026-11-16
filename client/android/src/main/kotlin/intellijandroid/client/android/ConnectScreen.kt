@@ -91,23 +91,35 @@ class ConnectActions(
 /**
  * Gateway's welcome window ("Welcome to JetBrains Gateway", 2026.3): connection kinds in a sidebar, recent projects
  * grouped by host on the right. Sizes measured on a 2x screenshot, in dp = pt (docs/intellij-look.md §10). Left out:
- * the logo, All Providers, the settings gear and New Project's drop-down.
+ * the logo, All Providers, the settings gear and New Project's drop-down. Upright, the sidebar becomes a tab bar at the
+ * bottom (Gateway has no portrait layout).
  */
 @Composable
 fun ConnectScreen(state: ConnectScreenState, actions: ConnectActions, fonts: ClientFonts) {
-    val styles = ConnectStyles(fonts)
     var choosingFolder by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxSize().background(Gateway.background)) {
-        // 224 pt in Gateway's window; narrower on a phone held upright.
-        val sidebarWidth = (maxWidth * 0.32f).coerceIn(Gateway.minSidebarWidth, Gateway.sidebarWidth)
-        Row(Modifier.fillMaxSize()) {
-            Sidebar(state.page, actions.pageChanged, styles, Modifier.width(sidebarWidth))
-            Box(Modifier.width(1.dp).fillMaxHeight().background(Gateway.divider))
-            Column(Modifier.weight(1f).fillMaxHeight()) {
-                when (state.page) {
-                    ConnectPage.PHONE -> PhonePage(state, actions, styles, onNewProject = { choosingFolder = true })
-                    ConnectPage.LINK -> LinkPage(state, actions, styles)
-                }
+        // Upright, the sidebar would take a third of the width for two entries: the connection kinds move to a tab bar
+        // at the bottom, like the main window's tool window bar, and project rows put the status under the path.
+        val portrait = maxHeight > maxWidth
+        val styles = ConnectStyles(fonts, twoLineRows = portrait)
+        @Composable
+        fun Page(modifier: Modifier) = Column(modifier) {
+            when (state.page) {
+                ConnectPage.PHONE -> PhonePage(state, actions, styles, onNewProject = { choosingFolder = true })
+                ConnectPage.LINK -> LinkPage(state, actions, styles)
+            }
+        }
+        if (portrait) {
+            Column(Modifier.fillMaxSize()) {
+                Page(Modifier.weight(1f).fillMaxWidth())
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Gateway.divider))
+                BottomTabs(state.page, actions.pageChanged, styles)
+            }
+        } else {
+            Row(Modifier.fillMaxSize()) {
+                Sidebar(state.page, actions.pageChanged, styles, Modifier.width(Gateway.sidebarWidth))
+                Box(Modifier.width(1.dp).fillMaxHeight().background(Gateway.divider))
+                Page(Modifier.weight(1f).fillMaxHeight())
             }
         }
     }
@@ -122,6 +134,32 @@ fun ConnectScreen(state: ConnectScreenState, actions: ConnectActions, fonts: Cli
     }
     state.starting?.let { project -> StartProgress(project, fonts, actions.cancelStart) }
 }
+
+/** The two connection kinds side by side; the selected one gets the stripe buttons' selected background. */
+@Composable
+private fun BottomTabs(page: ConnectPage, onSelect: (ConnectPage) -> Unit, styles: ConnectStyles) {
+    Row(Modifier.fillMaxWidth().height(Gateway.tabBarHeight).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        PAGES.forEach { (target, iconPath, label) ->
+            val icon = LocalIcons.current.painter(iconPath)
+            Row(
+                Modifier.weight(1f).padding(horizontal = 2.dp).height(Gateway.tabHeight)
+                    .background(if (page == target) Gateway.tabSelected else Color.Transparent, Gateway.tabShape)
+                    .clickable { onSelect(target) },
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                icon?.let { Image(it, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                BasicText(label, style = styles.body, modifier = Modifier.padding(start = 6.dp))
+            }
+        }
+    }
+}
+
+/** The connection kinds: page, icon, label. */
+private val PAGES = listOf(
+    Triple(ConnectPage.PHONE, "expui/nodes/ssh.svg", "This phone"),
+    Triple(ConnectPage.LINK, "markdown/link.svg", "Link"),
+)
 
 @Composable
 private fun Sidebar(page: ConnectPage, onSelect: (ConnectPage) -> Unit, styles: ConnectStyles, modifier: Modifier) {
@@ -143,9 +181,10 @@ private fun Sidebar(page: ConnectPage, onSelect: (ConnectPage) -> Unit, styles: 
         Box(Modifier.height(Gateway.sidebarRowHeight).padding(start = Gateway.sidebarTextInset), contentAlignment = Alignment.CenterStart) {
             BasicText("Connections", style = styles.secondary)
         }
-        Item(ConnectPage.PHONE, "expui/nodes/ssh.svg", "This phone")
+        val (phone, link) = PAGES
+        Item(phone.first, phone.second, phone.third)
         Box(Modifier.padding(vertical = 7.dp).fillMaxWidth().height(1.dp).background(Gateway.divider))
-        Item(ConnectPage.LINK, "markdown/link.svg", "Link")
+        Item(link.first, link.second, link.third)
     }
 }
 
@@ -286,26 +325,29 @@ private fun HostGroup(host: String, styles: ConnectStyles, icons: List<HeaderIco
 private fun ProjectRowView(row: ProjectRow, styles: ConnectStyles) {
     val icon = LocalIcons.current.painter("expui/nodes/ideaProject.svg")
     var menuOpen by remember { mutableStateOf(false) }
+    val status = if (row.running) "Running" else row.lastActive?.let { "Last active: ${lastActive(it, System.currentTimeMillis())}" }.orEmpty()
+    val statusStyle = styles.body.copy(color = if (row.running) Gateway.running else IslandsDark.textSecondary)
     Row(
-        Modifier.fillMaxWidth().height(Gateway.projectRowHeight).padding(start = Gateway.contentInset, end = Gateway.iconColumnEndInset),
+        Modifier.fillMaxWidth().height(if (styles.twoLineRows) Gateway.twoLineRowHeight else Gateway.projectRowHeight)
+            .padding(start = Gateway.contentInset, end = Gateway.iconColumnEndInset),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         icon?.let { Image(it, contentDescription = null, modifier = Modifier.size(16.dp)) }
-        // The status follows the path; the path gives way when both don't fit, and the icons stay on the right.
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            BasicText(
-                row.title,
-                style = styles.body.copy(color = IslandsDark.link),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 9.dp).weight(1f, fill = false).clickable(onClick = row.onOpen),
-            )
-            Spacer(Modifier.width(18.dp))
-            BasicText(
-                if (row.running) "Running" else row.lastActive?.let { "Last active: ${lastActive(it, System.currentTimeMillis())}" }.orEmpty(),
-                style = styles.body.copy(color = if (row.running) Gateway.running else IslandsDark.textSecondary),
-                maxLines = 1,
-            )
+        val title = @Composable { modifier: Modifier ->
+            BasicText(row.title, style = styles.body.copy(color = IslandsDark.link), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = modifier.clickable(onClick = row.onOpen))
+        }
+        if (styles.twoLineRows) {
+            Column(Modifier.weight(1f).padding(start = 9.dp)) {
+                title(Modifier)
+                BasicText(status, style = statusStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        } else {
+            // The status follows the path; the path gives way when both don't fit, and the icons stay on the right.
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                title(Modifier.padding(start = 9.dp).weight(1f, fill = false))
+                Spacer(Modifier.width(18.dp))
+                BasicText(status, style = statusStyle, maxLines = 1)
+            }
         }
         row.onStop?.let { stop -> IconButton("expui/run/stop.svg", "Stop", stop) }
         if (row.onRemove != null) {
@@ -382,7 +424,8 @@ internal fun lastActive(thenMillis: Long, nowMillis: Long): String {
     }
 }
 
-private class ConnectStyles(fonts: ClientFonts) {
+/** [twoLineRows]: the status goes under the path, for narrow screens. */
+private class ConnectStyles(fonts: ClientFonts, val twoLineRows: Boolean) {
     val body = TextStyle(color = IslandsDark.text, fontFamily = fonts.ui, fontSize = IslandsDark.UI_FONT_SIZE.sp)
     val secondary = body.copy(color = IslandsDark.textSecondary)
     val sidebarItem = body
@@ -398,7 +441,11 @@ private object Gateway {
     val selection = Color(0xFF2E436E)           // selected sidebar row, full width, square
     val running = Color(0xFF6AAB73)
     val sidebarWidth = 224.dp
-    val minSidebarWidth = 132.dp
+    val tabBarHeight = 40.dp                    // portrait: like the main window's tool window bar
+    val tabHeight = 32.dp
+    val tabShape = RoundedCornerShape(6.dp)
+    val tabSelected = Color(0xFF393B40)
+    val twoLineRowHeight = 48.dp
     val sidebarTop = 8.dp                       // Gateway has its logo here
     val sidebarRowHeight = 33.dp
     val sidebarIconInset = 17.dp

@@ -372,3 +372,9 @@ measured on 2x screenshots (pt = dp). Code: `client/android/.../ConnectScreen.kt
 | ⋮ menu | 237 wide, radius 8, `#2B2D30`, rows 24, text 20 in; Open With, Remove from Recent Projects, Collect Host and Client Logs | Remove from Recent Projects only |
 
 Left out: the logo and version, All Providers, the settings gear, New Project's drop-down, Open With and log collection.
+
+**Portrait** (window taller than wide). Gateway has no portrait layout, and the sidebar took a third of a phone's
+411 dp for two entries, squeezing the paths. Upright, the sidebar becomes a tab bar at the bottom, like the main
+window's tool window bar ([`mobile-layout.md`](mobile-layout.md)): 40 high, two equal tabs (icon and label), the
+selected one on a 32-high `#393B40` pill with radius 6. Project rows put the status under the path (rows 48 high).
+Landscape keeps the sidebar, now always 224 wide.
