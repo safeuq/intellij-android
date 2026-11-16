@@ -17,7 +17,7 @@ Why a custom JBR: IntelliJ's remote-dev server needs JetBrains Runtime (`com.jet
 ```
 docs/jbr-for-android.md        plan and dated log of the whole build: every failure and fix
 docs/split-protocol.md         how JetBrains Client talks to the backend, and running rd on Android
-docs/connections.md            the app's connect screen (link prompt, discovery, history) and the intellij-backend command it calls
+docs/connections.md            the app's connect screen (link prompt, this-phone discovery, history) and the intellij-backend command it calls
 docs/intellij-look.md          IntelliJ's Islands Dark editor and Project tree: colors, fonts, metrics, icons
 jbr/
   termux-package/jbr-25/       Termux recipe: build.sh, Termux's patches (00NN), ours (10NN)

@@ -3,12 +3,12 @@
 Decided with the user on 2026-11-16. The app's connect screen has three parts:
 
 1. **Link prompt**: paste a join link.
-2. **Discovered**: backends found on this phone and on the LAN.
+2. **Discovered**: a backend on this phone, found through Termux. No LAN discovery (decided 2026-11-16): other machines are added once by link or SSH, then stay in history.
 3. **History**: machines connected before. Tapping one reconnects.
 
 Build order: saved pasted links first, then Termux on this phone, then SSH.
 
-Ownership: the screens and the connection logic belong to the UI session (`client/`). The phone side (the `intellij-backend` command, the DNS-SD announcement, Termux setup) belongs to the runtime session (`backend/`). The contract between them is below.
+Ownership: the screens and the connection logic belong to the UI session (`client/`). The phone side (the `intellij-backend` command, Termux setup) belongs to the runtime session (`backend/`). The contract between them is below.
 
 ## Why history can't just store the link
 
@@ -49,12 +49,14 @@ What tapping an entry does:
 
 ## Discovery
 
-| Where | How |
-|---|---|
-| This phone | TCP connect to `127.0.0.1:5990`–`5999`. And if Termux is installed and the permission is granted: `intellij-backend status --json` through Termux |
-| LAN | Android `NsdManager`: browse `_intellij._tcp` (announced by `intellij-backend` while the backend runs) and `_ssh._tcp` (macOS announces it when Remote Login is on) |
+Only on this phone:
 
-Announcements never contain the join token. Anyone who has the token can join, and so run code on the machine.
+| Check | How |
+|---|---|
+| Backend running in Termux | `intellij-backend status --json` through Termux (needs the Termux setup below). It reads IntelliJ's own status files in `~/.cache/JetBrains/RemoteDev/active/`, the same ones JetBrains Gateway checks over SSH |
+| Termux not set up or not installed | TCP connect to `127.0.0.1:5990`–`5999`: a backend is there, but its link has to be pasted |
+
+There is no LAN discovery: no DNS-SD announcement and no browsing (dropped 2026-11-16). A machine on the LAN is added once, by pasting its link or as an SSH host, and is reached through history after that.
 
 ## Runtime contract
 
@@ -69,19 +71,6 @@ The command is `intellij-backend`, at `$PREFIX/bin/intellij-backend` (`/data/dat
 
 Without `--lan` the backend listens on `127.0.0.1` only (reachable from this phone and over SSH). With `--lan` it listens on `0.0.0.0`.
 
-DNS-SD announcement while the backend runs:
-
-| Item | Value |
-|---|---|
-| type | `_intellij._tcp` (DNS-SD service names are at most 15 characters, RFC 6335 §5.1, so not `_intellij-backend._tcp`) |
-| instance name | `<device name> · <project folder name>`, e.g. `Pixel 8 · smoke` |
-| port | the backend port, e.g. `5990` |
-| TXT `v` | `1` |
-| TXT `project` | `smoke` |
-| TXT `direct` | `1` when started with `--lan` (connect straight to the port), `0` when only reachable over SSH |
-| TXT `fp` | server certificate fingerprint, 64 hex digits |
-| TXT `ssh`, `user` | SSH port and user, e.g. `8022`, `u0_a404` |
-
 Termux setup the app needs (one time, done by the user):
 
 1. In `~/.termux/termux.properties`: `allow-external-apps = true`, then `termux-reload-settings`.
@@ -91,5 +80,4 @@ Termux setup the app needs (one time, done by the user):
 ## Open
 
 - Whether a backend can hand out a second token without restarting (for a second device). Until then: one client identity per backend run.
-- Whether Termux can announce DNS-SD at all (multicast without the Android multicast lock). If it can't, LAN discovery of a phone backend falls back to history and manual entry.
-- `intellij-backend` itself is not written yet (runtime session, next).
+- `intellij-backend` itself is not written yet (runtime session, next). Still to confirm: that the `active/` status file of a running backend has the join link (the `recent/` file of a stopped one doesn't). If it doesn't, `link` and `status` use IntelliJ's `remote-dev-server.sh status`, about 2 s instead of instant.
