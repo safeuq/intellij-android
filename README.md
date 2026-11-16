@@ -54,7 +54,7 @@ In Termux (aarch64), with the start script:
 
 ```sh
 apt install ./jbr-25_25.0.4.1_aarch64.deb          # installs to $PREFIX/lib/jvm/jbr-25
-pkg install jq
+pkg install jq termux-api   # termux-api also needs the Termux:API app, for the notification
 install -m 755 backend/termux/intellij-backend $PREFIX/bin/   # copy it to the phone first
 
 # IntelliJ IDEA 2026.3, linux-aarch64 build, unpacked to ~/intellij/idea-IU-263.7307.200
@@ -63,7 +63,7 @@ intellij-backend status                       # or: status --json, link
 intellij-backend stop
 ```
 
-It finds the IntelliJ under `~/intellij/idea-*/` (or `$INTELLIJ_HOME`), sets `IDEA_JDK` and `REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0` itself, takes Termux's wake lock while the backend runs, and keeps the backend running after the shell or SSH session that started it ends. Logs: `~/.local/state/intellij-backend/`. Status comes from IntelliJ's own files in `~/.cache/JetBrains/RemoteDev/active/`. It refuses to start (exit `4`) while another IntelliJ runs with the same settings, e.g. the desktop IntelliJ.
+It finds the IntelliJ under `~/intellij/idea-*/` (or `$INTELLIJ_HOME`), sets `IDEA_JDK` and `REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0` itself, takes Termux's wake lock while the backend runs, shows an ongoing notification with a Stop button (tapping it opens the Android app), and keeps the backend running after the shell or SSH session that started it ends. Logs: `~/.local/state/intellij-backend/`. Status comes from IntelliJ's own files in `~/.cache/JetBrains/RemoteDev/active/`. It refuses to start (exit `4`) while another IntelliJ runs with the same settings, e.g. the desktop IntelliJ.
 
 The same by hand:
 

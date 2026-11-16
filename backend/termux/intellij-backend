@@ -13,6 +13,9 @@
 # ~/.cache/JetBrains/RemoteDev/active/ (one per running backend, named by its PID), the same files
 # JetBrains Gateway reads over SSH.
 #
+# While a backend runs, Termux:API shows an ongoing notification with a Stop button (needs the
+# Termux:API app; without it the backend still runs, just without the notification).
+#
 # IntelliJ install: $INTELLIJ_HOME, or the only ~/intellij/idea-*/ folder.
 
 set -euo pipefail
@@ -25,6 +28,16 @@ readonly LOG_DIR="$HOME/.local/state/intellij-backend"
 readonly DEFAULT_PORT=5990
 readonly START_TIMEOUT_SECONDS=180
 readonly STOP_TIMEOUT_SECONDS=60
+readonly NOTIFICATION_ID="intellij-backend"
+readonly ANDROID_APP_ACTIVITY="intellijandroid.client.android/.MainActivity"
+
+# Every IntelliJ command here (run and stop) needs our bionic JBR: IntelliJ's bundled JBR is
+# built for glibc and fails at once (/lib/ld-linux-aarch64.so.1: not found). Set here, not in
+# the shell profile, because Termux's RUN_COMMAND doesn't read one.
+export IDEA_JDK="$JBR_HOME"
+export REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0
+# Android has no writable /tmp; Termux sets TMPDIR in its own sessions, not always elsewhere.
+export TMPDIR="${TMPDIR:-$TERMUX_PREFIX/tmp}"
 
 readonly EXIT_FAILED=1
 readonly EXIT_USAGE=2
@@ -83,6 +96,37 @@ other_intellij_pid() {
 	pgrep -f 'com\.intellij\.idea\.Main' | head -n 1 || true
 }
 
+# termux-notification waits forever when the Termux:API app is missing, hence the timeout.
+show_notification() {
+	local -r project="$1" address="$2"
+	timeout 10 termux-notification \
+		--id "$NOTIFICATION_ID" \
+		--ongoing \
+		--alert-once \
+		--priority low \
+		--title "IntelliJ backend running" \
+		--content "$(basename "$project") on $address" \
+		--action "am start -n $ANDROID_APP_ACTIVITY" \
+		--button1 "Stop" \
+		--button1-action "$TERMUX_PREFIX/bin/intellij-backend stop" \
+		>/dev/null 2>&1 || true
+}
+
+release_backend_resources() {
+	timeout 10 termux-notification-remove "$NOTIFICATION_ID" >/dev/null 2>&1 || true
+	termux-wake-unlock 2>/dev/null || true
+}
+
+# Runs detached next to the backend: when the backend exits for any reason (stop, crash, killed
+# by Android), the notification and the wake lock go with it.
+command_watch() {
+	local -r backend_pid="$1"
+	while [[ -d "/proc/$backend_pid" ]]; do
+		sleep 5
+	done
+	release_backend_resources
+}
+
 command_start() {
 	local project="" listen_address="127.0.0.1" port="$DEFAULT_PORT"
 	while [[ $# -gt 0 ]]; do
@@ -125,8 +169,7 @@ command_start() {
 	# Keeps Android from suspending Termux while the screen is off.
 	termux-wake-lock 2>/dev/null || true
 	# setsid: its own session, so it outlives the SSH session or Termux command that started it.
-	IDEA_JDK="$JBR_HOME" REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS=0 \
-		setsid "$launcher" run "$project" --listenOn "$listen_address" --port "$port" \
+	setsid "$launcher" run "$project" --listenOn "$listen_address" --port "$port" \
 		</dev/null >"$log_file" 2>&1 &
 	local -r launcher_pid=$!
 
@@ -134,6 +177,8 @@ command_start() {
 	while [[ $waited_seconds -lt $START_TIMEOUT_SECONDS ]]; do
 		status_file="$(running_status_file)"
 		if [[ -n "$status_file" && "$(project_of "$status_file")" == "$project" ]]; then
+			show_notification "$project" "$listen_address:$port"
+			setsid "$0" watch "$(basename "$status_file")" </dev/null >/dev/null 2>&1 &
 			join_link_of "$status_file"
 			return
 		fi
@@ -192,20 +237,27 @@ command_stop() {
 	local -r status_file="$(running_status_file)"
 	if [[ -n "$status_file" ]]; then
 		local -r backend_pid="$(basename "$status_file")"
-		# IntelliJ's own stop: asks the backend to exit cleanly.
-		"$(intellij_launcher)" stop "$(project_of "$status_file")" >/dev/null 2>&1 || true
+		local -r project="$(project_of "$status_file")"
+		echo "Stopping the backend for $project (pid $backend_pid)" >&2
+		# IntelliJ's own stop: asks the backend to save and exit.
+		local stop_output
+		if ! stop_output="$("$(intellij_launcher)" stop "$project" 2>&1)"; then
+			echo "$stop_output" | tail -n 5 >&2
+			echo "IntelliJ's stop command failed; waiting ${STOP_TIMEOUT_SECONDS}s, then ending the process" >&2
+		fi
 		local waited_seconds=0
 		while [[ -d "/proc/$backend_pid" && $waited_seconds -lt $STOP_TIMEOUT_SECONDS ]]; do
 			sleep 1
 			waited_seconds=$((waited_seconds + 1))
 		done
 		if [[ -d "/proc/$backend_pid" ]]; then
+			echo "Still running after ${STOP_TIMEOUT_SECONDS}s; sending SIGTERM" >&2
 			kill "$backend_pid" 2>/dev/null || true
 			sleep 5
 			[[ ! -d "/proc/$backend_pid" ]] || fail "$EXIT_FAILED" "backend (pid $backend_pid) did not stop"
 		fi
 	fi
-	termux-wake-unlock 2>/dev/null || true
+	release_backend_resources
 }
 
 main() {
@@ -218,6 +270,8 @@ main() {
 		link) command_link "$@" ;;
 		status) command_status "$@" ;;
 		stop) command_stop "$@" ;;
+		# internal: started by start, see command_watch
+		watch) command_watch "$@" ;;
 		-h | --help | help) usage ;;
 		*) usage ;;
 	esac

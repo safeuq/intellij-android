@@ -69,6 +69,8 @@ The command is `intellij-backend`, at `$PREFIX/bin/intellij-backend` (`/data/dat
 | `status --json` | `{"running":true,"project":"/data/…/smoke","port":5990,"listenOn":"127.0.0.1","joinLink":"tcp://…"}` or `{"running":false}` | `0` |
 | `stop` | nothing | `0` (also when not running) |
 
+While a backend runs, Termux:API shows an ongoing notification "IntelliJ backend running" (`termux-notification --id intellij-backend`). Tapping it opens the app (`intellijandroid.client.android/.MainActivity`); its Stop button runs `intellij-backend stop`. A small watcher started by `start` removes it, and releases the wake lock, when the backend exits for any reason. So the app doesn't need its own notification for the backend.
+
 Without `--lan` the backend listens on `127.0.0.1` only (reachable from this phone and over SSH). With `--lan` it listens on `0.0.0.0`.
 
 Termux setup the app needs (one time, done by the user):
@@ -80,4 +82,4 @@ Termux setup the app needs (one time, done by the user):
 ## Open
 
 - Whether a backend can hand out a second token without restarting (for a second device). Until then: one client identity per backend run.
-- `intellij-backend` is written (`backend/termux/intellij-backend`, 2026-11-16) and tested on the phone over SSH; not yet through Termux's RUN_COMMAND. The `active/` status file of a running backend has `joinLink`, so `link` and `status` answer at once.
+- `intellij-backend` is written (`backend/termux/intellij-backend`, 2026-11-16) and tested on the phone over SSH and through Termux's RUN_COMMAND (the app's Start). It sets `IDEA_JDK`, `REMOTE_DEV_SERVER_USE_SELF_CONTAINED_LIBS` and `TMPDIR` itself, because RUN_COMMAND and notification buttons don't read a shell profile. The `active/` status file of a running backend has `joinLink`, so `link` and `status` answer at once.
