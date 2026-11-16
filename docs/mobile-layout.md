@@ -1,6 +1,6 @@
 # Mobile layout: phone, tablet, portrait, landscape
 
-How the main window (`client/src/main/kotlin/intellijandroid/client/ui/ClientScreen.kt`, `ToolWindows.kt`) arranges
+How the main window (`client/compose/src/commonMain/kotlin/intellijandroid/client/ui/ClientScreen.kt`, `ToolWindows.kt`) arranges
 the editor, the tool windows and the bars on each screen shape. From the user's brainstorm of 2026-11-16
 (`optimize-for-portrait.md` next to the repo) and the answers to its questions.
 

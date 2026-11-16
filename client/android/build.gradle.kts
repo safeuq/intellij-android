@@ -13,27 +13,17 @@ buildscript {
 }
 
 plugins {
-    id("com.android.application") version "9.5.1"
-    id("org.jetbrains.kotlin.plugin.compose") version "2.3.21"
+    id("com.android.application")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Same inputs as the desktop client: JetBrains Client 263.7307.200's Contents/lib folder (protocol jars, icons) and
-// its JBR (fonts). Example: ~/Library/Caches/JetBrains/JetBrainsClientDist/JetBrainsClient-263.7307.200-aarch64.sit-…/IntelliJ IDEA.app/Contents/lib
-val jetbrainsClientLib: String = providers.gradleProperty("jetbrainsClientLib")
-    .orElse(providers.environmentVariable("JETBRAINS_CLIENT_LIB"))
-    .orNull
-    ?: error("Set JETBRAINS_CLIENT_LIB (or -PjetbrainsClientLib=…) to JetBrains Client 263.7307.200's Contents/lib folder")
+// Same inputs as the desktop client (root build.gradle.kts): JetBrains Client's Contents/lib folder (protocol jars, icons)
+// and its JBR (fonts).
+val jetbrainsClientLib: String by rootProject.extra
+val protocolJars: List<String> by rootProject.extra
 
 fun clientFile(path: String): File =
     file("$jetbrainsClientLib/$path").also { check(it.exists()) { "Missing $it: is JETBRAINS_CLIENT_LIB the client's Contents/lib folder?" } }
-
-val protocolJars = listOf(
-    "intellij.libraries.rd.core.jar",
-    "intellij.libraries.rd.framework.jar",
-    "intellij.libraries.rd.text.jar",
-    "intellij.platform.split.protocol.jar",
-    "intellij.rd.ide.model.generated.jar",
-)
 
 // ArtUnsafeShim uses sun.misc.Unsafe, which android.jar doesn't have, so it is compiled against the JDK, as rd is.
 val compileArtShim by tasks.registering(JavaCompile::class) {
@@ -178,6 +168,9 @@ val clientAssets by tasks.registering(ClientAssets::class) {
     outputDirectory = layout.buildDirectory.dir("generated/client-assets")
 }
 
+// The APK keeps its name from when this was a build of its own: intellij-android-app-debug.apk.
+base.archivesName = "intellij-android-app"
+
 android {
     namespace = "intellijandroid.client.android"
     compileSdk = 37
@@ -196,9 +189,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // The connection, session and UI code is shared with the desktop client.
-    sourceSets.named("main") { kotlin.srcDir("../src/main/kotlin") }
-
     packaging {
         resources.excludes += listOf("META-INF/versions/**", "META-INF/*.SF", "META-INF/*.RSA", "META-INF/*.DSA")
     }
@@ -209,9 +199,9 @@ androidComponents {
 }
 
 dependencies {
+    // The connection, session and UI code, shared with the desktop client.
+    implementation(project(":compose"))
     implementation(files(protocolJars.map { name -> prepareProtocolJars.flatMap { it.outputDirectory.file(name) } }))
-    implementation("org.bouncycastle:bcpkix-jdk18on:1.82")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.13.0")
     implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.activity:activity-compose:1.13.0")

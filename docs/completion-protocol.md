@@ -1,6 +1,6 @@
 # Code completion over Fleet RPC (JetBrains Client 263.7307.200, IntelliJ split mode)
 
-Read from the decompiled client jars and checked against a recorded session (2026-11-15). Our implementation: `client/src/main/kotlin/intellijandroid/client/session/FleetRpc.kt` and `Completion.kt`; results in section 6.
+Read from the decompiled client jars and checked against a recorded session (2026-11-15). Our implementation: `client/compose/src/commonMain/kotlin/intellijandroid/client/session/FleetRpc.kt` and `Completion.kt`; results in section 6.
 
 Tags: **[Seen]** = read in decompiled code or bytecode (class/method named). **[Inferred]** = reasoned from code, the backend side is not in the client jars.
 

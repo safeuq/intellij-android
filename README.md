@@ -48,8 +48,9 @@ jbr/
 backend/checks/                small Java checks used on the phone
 backend/fsnotifier/            IntelliJ's file watcher built for Android: build.sh, our patch
 backend/termux/intellij-backend  setup/start/stop/status/link for the backend in Termux (called by the app)
-client/src/                    the Compose client: connection/ (TLS, frames, rd wire), session/ (rd models), ui/
-client/android/                the Android app (its own Gradle build over client/src/main)
+client/compose/                the Compose client, shared: connection/ (TLS, frames, rd wire), session/ (rd models), ui/
+client/desktop/                the JVM launcher for it (./gradlew :desktop:run)
+client/android/                the Android app on it (./gradlew :android:assembleDebug)
 client/spikes/rd-on-art/       checks that rd and the protocol models run on Android ART
 client/spikes/session-capture/ summarizes an rd trace recorded from JetBrains Client
 ```

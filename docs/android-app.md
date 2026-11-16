@@ -1,6 +1,6 @@
 # Android app
 
-The split-mode client as an Android app. It compiles the desktop client's shared code (`client/src/main/kotlin`: connection, session, UI; see [`client.md`](client.md)) and adds only the Android pieces: the connect screen (link prompt, backends on this phone, history; Termux commands), fonts and icons from assets, and the soft keyboard hook. How it works and what was tested: [`split-protocol.md`](split-protocol.md), "The Android app (step 5)".
+The split-mode client as an Android app. It uses the `:compose` module shared with the desktop client (connection, session, UI; see [`client.md`](client.md)) and adds only the Android pieces: the connect screen (link prompt, backends on this phone, history; Termux commands), fonts and icons from assets, and the soft keyboard hook. How it works and what was tested: [`split-protocol.md`](split-protocol.md), "The Android app (step 5)".
 
 ## Build
 
@@ -14,9 +14,9 @@ Needs:
 export ANDROID_HOME="$HOME/Library/Android/sdk"
 export JAVA_HOME="$HOME/Applications/IntelliJ IDEA.app/Contents/jbr/Contents/Home"
 export JETBRAINS_CLIENT_LIB="$HOME/Library/Caches/JetBrains/JetBrainsClientDist/JetBrainsClient-263.7307.200-aarch64.sit-…/IntelliJ IDEA.app/Contents/lib"
-cd client/android
-../gradlew assembleDebug        # build/outputs/apk/debug/intellij-android-app-debug.apk, about 43 MB
-adb install -r build/outputs/apk/debug/intellij-android-app-debug.apk
+cd client
+./gradlew :android:assembleDebug        # android/build/outputs/apk/debug/intellij-android-app-debug.apk, about 47 MB
+adb install -r android/build/outputs/apk/debug/intellij-android-app-debug.apk
 ```
 
 The protocol jars are patched for ART on the way (class file version, `sun.misc.Unsafe` in rd's `UnsafeBuffer`); `client/android/rd-patch/` holds the shim.
