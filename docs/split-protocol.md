@@ -191,7 +191,7 @@ Needed for a first working connection: everything in the diagram above, plus seq
 
 Can be skipped for now:
 - session token (no token handler on `tcp://`), password flow, negotiation;
-- wire reuse and resending after a reconnect: always send `WIRE_EXIST` = 0 and start a fresh wire;
+- wire reuse and resending after a reconnect: always send `WIRE_EXIST` = 0 and start a fresh wire (a stored client id still needs a higher `TRANSPORT_INDEX`: [Connect screen and reconnecting (step 7)](#connect-screen-and-reconnecting-step-7));
 - QUIC, STUN/TURN, WebSocket and proxy transports, telemetry.
 
 ### Where rd starts
@@ -555,7 +555,7 @@ The models it creates: `SolutionModel`, `HighlighterRegistrationHostModel` (sets
 |---|---|---|
 | 1 | `protocol error: clientId does not start with client fingerprint` | The certificate's `UNIQUE_IDENTIFIER` is the client id: `<SHA3-256 fingerprint of the per-process CA certificate>-<epoch ms>`, e.g. `C62C256C…514E-1794743186847` (JetBrains Client's `ThinClientId`). Not a UUID. |
 | 2 | (connected; then our side failed) | rd's `UnsafeBuffer(256)` is native memory and `getArray()` throws; use `UnsafeBuffer(ByteArray(256))`. `Protocol` calls `startDeliveringMessages()` itself; calling it again throws. |
-| 3 | `Declining invalid token from safeuq` → we get `USER_DECLINED` | The join token `jt` works once. After a client has connected with it, a new client id with the same `jt` is refused. Restart the backend (or keep the client id) for a new attempt. |
+| 3 | `Declining invalid token from safeuq` → we get `USER_DECLINED` | The join token `jt` works once. After a client has connected with it, a new client id with the same `jt` is refused. Restart the backend, or keep the client id ([step 7](#connect-screen-and-reconnecting-step-7)), for a new attempt. |
 | 4 | `Expected to get frame of type: <SystemFrame>, but received: <Message Frame>` | After `ACCEPTED`, both sides send `CURRENT_CONFIRMED_FRAME_ACK` (status 11, int32 = last frame number received from the other side, `0` for a new wire) and read the other's, before any message frame (`ServiceMessageProcessor.resendUnconfirmedFrames`). |
 | 5 | `null cannot be cast to non-null type T of …ProtocolMarkupExtensionsKt.getExtension`, `lineMarkerActionModel is null`; no highlighters | Every markup model the client creates must carry the extensions JetBrains Client puts there, looked up by key (`TOOLTIP_PROVIDER_MODEL_KEY`, `LINE_MARKER_ACTIONS_KEY`, `MARKUP_REVALIDATION_KEY`, … 20 for an editor, 13 for a document). See `client/src/main/kotlin/intellijandroid/client/session/MarkupExtensions.kt`. |
 
@@ -584,7 +584,7 @@ Running the client: see `client/README.md`.
 - Editing: typing goes back to the backend; the format is still open (see the questions below). `RdCaretStateSnapshot` and other patch items are logged and ignored.
 - Daemon results (errors, warnings, the grey "unused" variable), the project tree, tabs, Lux.
 - The real client's `HighlighterRegistrationHostModel` also gets `demoTextTagsMap`, `colorSettingsPage` and `severities`; ignored.
-- No resend after a reconnect: a dropped connection ends the session.
+- No resend after a reconnect: a dropped connection ends the session (reconnecting with the same identity: [step 7](#connect-screen-and-reconnecting-step-7)).
 
 ## Project tree and editor (step 3)
 
@@ -742,6 +742,33 @@ Choosing an item is two messages, in this order: `ItemSelected` on `commandFlow`
 - Characters that insert the selected item and then themselves (`.` or `(` in a focused popup) close the popup instead.
 - The documentation popup beside the list, the "press '.' to show commands" hint and the footer's "Next Tip" are not shown.
 - On Android: no Ctrl+Space on the soft keyboard; the popup opens by itself, and rows are tapped.
+
+## Connect screen and reconnecting (step 7)
+
+The Android app opens on a connect screen: the link prompt, backends running on this phone, and a history of connections. Tapping a history entry connects again with the same join link, also after the app was closed. What the screen does and the `intellij-backend` contract it calls: [`connections.md`](connections.md). Tested 2026-11-16 on the emulator and the desktop client against the Mac backend. **Seen** unless marked.
+
+**Same join token, same client id.** The backend accepts a `jt` only from the client id that first used it ([attempt 3](#what-the-recording-didnt-show-found-by-failing)). So a history entry stores the client identity the backend accepted (CA key and certificate, leaf certificate, client id), and a reconnect presents it again. Two things are different from a first connection:
+
+| Step | First connection | Same identity again, e.g. after an app restart |
+|---|---|---|
+| `TRANSPORT_INDEX` we send | `0` | higher than the last one; the client sends seconds since 1970, e.g. `1794804094` |
+| backend's answer to index `0` | accepted | `Transport index is outdated or already set` → `DECLINED` (the backend counts transports per client id: `Current transport index: <0>`) |
+| `WIRE_EXIST` from the backend | `0` | `1`: it kept the dropped wire (`Suspend wire for client … in the storage`) |
+| our `WIRE_EXIST` | `0` | `0`: we have nothing to resume |
+| backend then | `New Wire` | `Remote wire exist for client: false` → `Terminate wire` (the old one) → `New Wire`; app and project sessions for that client id are replaced (`already registered and will be replaced`) |
+
+After that the session works as a new one: Project tree, editor, highlighting, typing.
+
+**Except the autopopup.** On a reconnected client id, the backend closes `autopopupRequests` right away, every time it is called: `producerCancelled: … CancellationException: cancelled with reason`. The cause is in the backend (`BackendAutopopupScheduler`, `intellij.platform.completion.backend.split.jar`): `getRequestFlow()` is `channel.consumeAsFlow()` on one channel per client id, and a `consumeAsFlow` channel can be collected once. When the old connection's collector ended, the channel was cancelled with it. **Inferred** from the bytecode plus the log; JetBrains Client never meets this, because a restarted JetBrains Client makes a new client id (and a new `jt` is needed). The client handles it: when that stream closes, it asks for the autopopup itself after a typed letter or `.` (`StartRequest` with `invocationCount` 0 once the edit is answered). The backend's typed handler also skips the autopopup in strings and comments; the client relies on the backend answering with no items there.
+
+The desktop client stores its identity too when started with `CLIENT_IDENTITY=<file>` (see `client/README.md`).
+
+### Not done yet
+
+- SSH history entries (the third kind in `connections.md`).
+- The Termux entries are built against the `intellij-backend` contract; the command doesn't exist yet, so they are untested.
+- No automatic reconnect: when the connection drops, the app goes back to the connect screen, and a tap on the history entry reconnects.
+- A history entry keeps the client's private key in the app's private storage. It is only useful with that backend's `jt`, until the backend restarts.
 
 ## Plan for the client that follows from this
 

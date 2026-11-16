@@ -1,6 +1,6 @@
 # Android app
 
-The split-mode client as an Android app. It compiles the desktop client's shared code (`../src/main/kotlin`: connection, session, UI) and adds only the Android pieces: the activity with a join-link form, fonts and icons from assets, and the soft keyboard hook. How it works and what was tested: [`docs/split-protocol.md`](../../docs/split-protocol.md), "The Android app (step 5)".
+The split-mode client as an Android app. It compiles the desktop client's shared code (`../src/main/kotlin`: connection, session, UI) and adds only the Android pieces: the connect screen (link prompt, backends on this phone, history; Termux commands), fonts and icons from assets, and the soft keyboard hook. How it works and what was tested: [`docs/split-protocol.md`](../../docs/split-protocol.md), "The Android app (step 5)".
 
 ## Build
 
@@ -22,12 +22,20 @@ The protocol jars are patched for ART on the way (class file version, `sun.misc.
 
 ## Run
 
-Open the app, paste the join link the backend printed, optionally an absolute file path on the backend, and tap **Connect**. The link and path are remembered. Each join link works for one connection only: restart the backend before connecting again.
+The app opens on the connect screen ([`docs/connections.md`](../../docs/connections.md)):
+
+| Part | What it does |
+|---|---|
+| Join link | Paste the link the backend printed, optionally an absolute file path on the backend, and tap **Connect**. |
+| On this phone | Backends running here: from Termux (`intellij-backend status --json`, once the app may run Termux commands), or any of the ports 127.0.0.1:5990–5999 that accept a connection. A bare port needs its link pasted. |
+| History | Connections that worked, newest first. A tap connects again with the stored link and client identity, also after the app was closed. When the backend has restarted, the old link is refused: paste the new one, and the entry is updated. Termux entries ask Termux for the current link, and offer `intellij-backend start <project>` when none is running. |
 
 | Backend | Join link |
 |---|---|
 | in Termux on the same phone | as printed, `tcp://127.0.0.1:5990#jt=…&fp=…` |
 | on a computer, phone or emulator on USB | as printed, after `adb reverse tcp:5990 tcp:5990` |
+
+Termux commands need `allow-external-apps = true` in `~/.termux/termux.properties` (then `termux-reload-settings`); the app asks for Termux's "Run commands in Termux environment" permission when you tap the Termux row.
 
 For scripted runs, the link and file can come as extras; the app then connects at once:
 

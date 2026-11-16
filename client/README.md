@@ -30,6 +30,7 @@ Debug aids, all off by default:
 |---|---|
 | `CLIENT_SNAPSHOT=/tmp/client.png` | renders the window off-screen into that PNG every 3 s (works with a locked or hidden screen) |
 | `CLIENT_HIGHLIGHT_DUMP=/tmp/highlights.txt` | writes every highlight of the open file: range, layer, attribute keys, covered text |
+| `CLIENT_IDENTITY=/tmp/identity.txt` | keeps the client identity in that file, so a restarted client can use the same join link again (docs/split-protocol.md, step 7) |
 | `CLIENT_EDIT_DEBUG=1` | prints every edit request, the backend's answer and whether it matched the local edit (`[edit] …` lines) |
 
 The first argument is the join link the backend prints, with `0.0.0.0` replaced by its address. The join token in it works for one client only, so restart the backend before connecting a second time. Starting a backend on the Mac without disturbing a running IntelliJ: `docs/split-protocol.md`, "Running a backend on the Mac for client work".

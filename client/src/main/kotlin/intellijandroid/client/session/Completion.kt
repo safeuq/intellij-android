@@ -27,7 +27,7 @@ private const val PROTOCOL = "com.intellij.platform.completion.common.protocol"
  * - Choosing an item sends `ItemSelected` and inserts it as an rd edit (`EditorChooseLookupItem`).
  */
 class Completion(
-    fleet: FleetRpc,
+    private val fleet: FleetRpc,
     /** `RdCodeWithMeProject.kernelProjectId`, e.g. `m3nniruk9k7j4qsibjui`. */
     private val kernelProjectId: String,
     private val editSessionFor: (kernelEditorId: String) -> Pair<String, EditSession>?,
@@ -37,9 +37,29 @@ class Completion(
     private val commands = fleet.openStream(SERVICE, "commandFlow", "commands")
     private var popup: Popup? = null
 
+    /** True once the backend has closed `autopopupRequests`; then [afterTyped] asks for the autopopup itself. */
+    private var autopopupLost = false
+
     init {
         fleet.subscribe(SERVICE, "responseFlow", JsonObject(emptyMap())) { onResponse(it.jsonObject) }
-        fleet.subscribe(SERVICE, "autopopupRequests", buildJsonObject { put("projectId", id(kernelProjectId)) }) { onAutopopupRequest(it.jsonObject) }
+        // The backend reads its autopopup channel with consumeAsFlow (BackendAutopopupScheduler.getRequestFlow), so a
+        // client id gets it once: when a connection ends, the channel is closed for that client id. A client that
+        // reconnects with a stored identity (docs/connections.md) has the stream closed at once, every time.
+        fleet.subscribe(SERVICE, "autopopupRequests", buildJsonObject { put("projectId", id(kernelProjectId)) }, onClosed = {
+            autopopupLost = true
+            log("Autopopup requests closed by the backend; the client asks for the autopopup after typed letters itself")
+        }) { onAutopopupRequest(it.jsonObject) }
+    }
+
+    /**
+     * After [character] went into the document outside the popup: without the backend's autopopup requests, a letter
+     * or '.' asks for the autopopup (invocation count 0), as the backend's typed handler would have.
+     */
+    fun afterTyped(path: String, edit: EditSession, character: Char) {
+        if (!autopopupLost || popup != null) return
+        // ponytail: the backend's typed handler also skips strings and comments; here only the backend's empty answer does.
+        if (!Character.isJavaIdentifierStart(character) && character != '.') return
+        edit.afterPendingEdits { if (popup == null) open(path, edit, invocationCount = 0) }
     }
 
     private inner class Popup(val sessionId: String, val path: String, val edit: EditSession, var requestId: String, var prefix: String, val explicit: Boolean) {

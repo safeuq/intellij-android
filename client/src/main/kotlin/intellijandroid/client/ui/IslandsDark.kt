@@ -19,6 +19,7 @@ object IslandsDark {
 
     val text = Color(0xFFD1D3D9)                  // text-default
     val textSecondary = Color(0xFF73767C)         // grayed (e.g. path after the module name)
+    val link = Color(0xFF538AF9)                  // measured: completion match highlight, the theme's blue for links
 
     val headerHeight = 41.dp                      // ToolWindow header
     val headerLeftInset = 12.dp

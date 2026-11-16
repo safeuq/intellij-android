@@ -28,6 +28,10 @@ class Connection(val socket: SSLSocket, val frames: FrameChannel) : AutoCloseabl
          * TRANSPORT_INDEX(0) → TRANSPORT_ACCEPTANCE(1) → WIRE_EXIST(0) → (WIRE_EXIST, JOIN_PIN) → ACCEPTED → ACCEPTED.
          */
         fun open(link: JoinLink, certificate: ClientCertificate, log: (String) -> Unit): Connection {
+            // The backend counts transports per client id and declines an index it has seen ("Transport index is
+            // outdated"). A new identity starts at 0; a stored one, used again, needs a higher index than its last
+            // connection's, so seconds since 1970 (fits an Int until 2038).
+            val transportIndex = if (certificate.isNew) 0 else (System.currentTimeMillis() / 1000).toInt()
             val tcp = Socket()
             tcp.connect(InetSocketAddress(link.host, link.port), HANDSHAKE_TIMEOUT_MILLIS)
             tcp.soTimeout = HANDSHAKE_TIMEOUT_MILLIS
@@ -42,7 +46,7 @@ class Connection(val socket: SSLSocket, val frames: FrameChannel) : AutoCloseabl
 
             val frames = FrameChannel(socket.inputStream, socket.outputStream)
             try {
-                handshake(frames, log)
+                handshake(frames, transportIndex, log)
             } catch (failure: Exception) {
                 frames.close()
                 socket.close()
@@ -51,8 +55,8 @@ class Connection(val socket: SSLSocket, val frames: FrameChannel) : AutoCloseabl
             return Connection(socket, frames)
         }
 
-        private fun handshake(frames: FrameChannel, log: (String) -> Unit) {
-            frames.writeSystem(WireStatus.TRANSPORT_INDEX, ByteBuffer.allocate(4).putInt(0).array())
+        private fun handshake(frames: FrameChannel, transportIndex: Int, log: (String) -> Unit) {
+            frames.writeSystem(WireStatus.TRANSPORT_INDEX, ByteBuffer.allocate(4).putInt(transportIndex).array())
             val acceptance = readSystem(frames)
             check(acceptance.status == WireStatus.TRANSPORT_ACCEPTANCE && acceptance.data.firstOrNull() == 1.toByte()) {
                 "Backend did not accept the transport: $acceptance"

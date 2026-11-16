@@ -56,17 +56,20 @@ class FleetRpc(
         })
     }
 
-    /** Calls [method], whose result is a stream from the backend, and passes every element to [onElement]. */
-    fun subscribe(service: String, method: String, args: JsonObject, onElement: (JsonElement) -> Unit) =
+    /**
+     * Calls [method], whose result is a stream from the backend, and passes every element to [onElement]; [onClosed]
+     * runs when the backend closes the stream.
+     */
+    fun subscribe(service: String, method: String, args: JsonObject, onClosed: () -> Unit = {}, onElement: (JsonElement) -> Unit) =
         call(service, method, args) { result ->
             val streamId = result.jsonPrimitive.content
-            incomingStreams[streamId] = IncomingStream(onElement)
+            incomingStreams[streamId] = IncomingStream(method, onClosed, onElement)
             send(streamMessage("stream_init", streamId))
         }
 
     /** Calls [method] with a new stream to the backend as its argument [argument]; elements go out with [OutgoingStream.send]. */
     fun openStream(service: String, method: String, argument: String): OutgoingStream {
-        val stream = OutgoingStream(newUid())
+        val stream = OutgoingStream(newUid(), method)
         outgoingStreams[stream.streamId] = stream
         // Same order as JetBrains Client: the call carrying the stream id, then stream_init, then the elements.
         call(service, method, buildJsonObject { put(argument, stream.streamId) })
@@ -74,7 +77,7 @@ class FleetRpc(
         return stream
     }
 
-    inner class OutgoingStream(val streamId: String) {
+    inner class OutgoingStream(val streamId: String, val method: String) {
         // The backend may hold at most BUDGET unread elements; it sends stream_next to allow more.
         private var budget = BUDGET
         private val waiting = ArrayDeque<JsonElement>()
@@ -97,7 +100,7 @@ class FleetRpc(
         }
     }
 
-    private class IncomingStream(val onElement: (JsonElement) -> Unit) {
+    private class IncomingStream(val method: String, val onClosed: () -> Unit, val onElement: (JsonElement) -> Unit) {
         var remaining = BUDGET
     }
 
@@ -122,7 +125,10 @@ class FleetRpc(
             "stream_next" -> outgoingStreams[message.string("streamId")]?.refill(message["count"]!!.jsonPrimitive.int)
             "stream_closed" -> {
                 val streamId = message.string("streamId")
-                if (incomingStreams.remove(streamId) != null || outgoingStreams.remove(streamId) != null) log("Fleet RPC stream $streamId closed ${message["error"] ?: ""}")
+                val incoming = incomingStreams.remove(streamId)
+                val method = incoming?.method ?: outgoingStreams.remove(streamId)?.method ?: return
+                log("Fleet RPC stream $streamId ($method) closed ${message["error"] ?: ""}")
+                incoming?.onClosed?.invoke()
             }
             "stream_init" -> Unit
             else -> log("Fleet RPC: unexpected ${message.string("type")}")

@@ -16,8 +16,12 @@ import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
 import java.security.PrivateKey
+import java.security.KeyFactory
 import java.security.PublicKey
+import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.security.spec.PKCS8EncodedKeySpec
+import java.util.Base64
 import java.time.Duration
 import java.time.Instant
 import java.util.Date
@@ -25,8 +29,34 @@ import java.util.HexFormat
 import java.util.UUID
 
 /** The client certificate the backend requires, built like JetBrains Client's (docs/split-protocol.md, "TLS"). */
-class ClientCertificate(val privateKey: PrivateKey, val chain: Array<X509Certificate>, val clientId: String) {
+class ClientCertificate(
+    val privateKey: PrivateKey,
+    val chain: Array<X509Certificate>,
+    val clientId: String,
+    /** False when loaded with [decode]: the backend may already know this client id. */
+    val isNew: Boolean,
+) {
+    /**
+     * `<clientId> <key> <leaf> <authority>`, the last three base64 DER, for storing next to a saved connection: the backend
+     * accepts a join token from the one client id that first used it, so reconnecting after an app restart needs the
+     * same identity (docs/connections.md).
+     */
+    fun encode(): String {
+        val base64 = Base64.getEncoder()
+        return (listOf(clientId, base64.encodeToString(privateKey.encoded)) + chain.map { base64.encodeToString(it.encoded) }).joinToString(" ")
+    }
+
     companion object {
+        fun decode(encoded: String): ClientCertificate {
+            val parts = encoded.split(' ')
+            require(parts.size == 4) { "A stored client identity has 4 parts (client id, key, leaf, authority), got ${parts.size}" }
+            val base64 = Base64.getDecoder()
+            val certificates = CertificateFactory.getInstance("X.509")
+            val chain = parts.drop(2).map { certificates.generateCertificate(base64.decode(it).inputStream()) as X509Certificate }
+            val key = KeyFactory.getInstance("RSA").generatePrivate(PKCS8EncodedKeySpec(base64.decode(parts[1])))
+            return ClientCertificate(key, chain.toTypedArray(), parts[0], isNew = false)
+        }
+
         private val bouncyCastle = BouncyCastleProvider()
 
         /**
@@ -54,9 +84,11 @@ class ClientCertificate(val privateKey: PrivateKey, val chain: Array<X509Certifi
                 .addRDN(BCStyle.CN, userName)
                 .addRDN(BCStyle.PSEUDONYM, link.joinToken)
                 .build()
-            // Like JetBrains Client: issuer is the per-process authority, but the leaf signs itself.
-            val leafCertificate = build(subject, leaf.public, authorityCertificate, authority.public, leaf.private, Duration.ofDays(1))
-            return ClientCertificate(leaf.private, arrayOf(leafCertificate, authorityCertificate), clientId)
+            // Like JetBrains Client: issuer is the per-process authority, but the leaf signs itself. JetBrains Client's leaf
+            // lasts 1 day because it makes a new one per process; ours is stored for reconnecting, so it lasts as long as
+            // the authority.
+            val leafCertificate = build(subject, leaf.public, authorityCertificate, authority.public, leaf.private, Duration.ofDays(60))
+            return ClientCertificate(leaf.private, arrayOf(leafCertificate, authorityCertificate), clientId, isNew = true)
         }
 
         /** `UPPERCASE_HEX(SHA3-256(DER))`, compared with the join link's `fp`. BouncyCastle, because Android lacks SHA3. */

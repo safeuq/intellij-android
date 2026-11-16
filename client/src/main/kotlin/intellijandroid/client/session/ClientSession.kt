@@ -83,7 +83,14 @@ import kotlin.concurrent.thread
  * those need (docs/split-protocol.md, "Our own client"). Plain JVM + rd: no UI types here, so the same class can back an
  * Android screen. All rd model access happens on the rd scheduler thread; UI actions are queued onto it.
  */
-class ClientSession(private val link: JoinLink, private val initialFile: String?) {
+class ClientSession(
+    private val link: JoinLink,
+    private val initialFile: String?,
+    /** A stored identity to use [link]'s join token again; null makes a new one. */
+    private val identity: ClientCertificate? = null,
+    /** Called on the connect thread once the backend has accepted the connection, with the identity it accepted. */
+    private val onAccepted: (ClientCertificate) -> Unit = {},
+) {
     private val lifetimeDefinition = LifetimeDefinition()
     private val lifetime: Lifetime = lifetimeDefinition
     private val mutableState = MutableStateFlow(SessionState())
@@ -116,7 +123,7 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
 
     fun start() {
         thread(name = "client-session-connect", isDaemon = true) {
-            runCatching { connect() }.onFailure { failure -> fail(failure) }
+            runCatching { connect() }.onFailure { failure -> fail(failure, connectionLost = true) }
         }
     }
 
@@ -155,7 +162,10 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
     fun type(character: Char) = onRd {
         val session = selectedEditSession() ?: return@onRd
         // While the completion popup is open, identifier letters narrow it down.
-        if (completion?.typed(session, character) != true) session.type(character)
+        if (completion?.typed(session, character) != true) {
+            session.type(character)
+            mutableState.value.selectedEditor?.let { path -> completion?.afterTyped(path, session, character) }
+        }
     }
 
     fun key(key: EditorKey) = onRd {
@@ -203,9 +213,10 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
     // ---- Connection and models ----
 
     private fun connect() {
-        val certificate = ClientCertificate.create(link, System.getProperty("user.name") ?: "android")
+        val certificate = identity ?: ClientCertificate.create(link, System.getProperty("user.name") ?: "android")
         val connection = Connection.open(link, certificate, ::log)
-        val wire = SplitWire(connection) { failure -> fail(failure ?: IllegalStateException("Connection closed")) }
+        onAccepted(certificate)
+        val wire = SplitWire(connection) { failure -> fail(failure ?: IllegalStateException("Connection closed"), connectionLost = true) }
         lifetime.onTermination { wire.close() }
         val rdScheduler = SingleThreadScheduler(lifetime, "rd")
         val protocol = Protocol("ThinClient", Serializers(ProtocolMarshallers), Identities(IdKind.Client), rdScheduler, wire, lifetime)
@@ -461,10 +472,10 @@ class ClientSession(private val link: JoinLink, private val initialFile: String?
         mutableState.update { it.copy(log = (it.log + line).takeLast(200)) }
     }
 
-    private fun fail(failure: Throwable) {
+    private fun fail(failure: Throwable, connectionLost: Boolean = false) {
         log("FAILED: $failure")
         failure.printStackTrace()
-        mutableState.update { it.copy(failure = failure.toString()) }
+        mutableState.update { it.copy(failure = failure.toString(), connectionLost = if (connectionLost) failure.toString() else it.connectionLost) }
     }
 
     /** A highlighter before style resolution, so a scheme change can restyle it. Indent guides carry [indentLevel]. */

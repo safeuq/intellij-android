@@ -80,6 +80,8 @@ enum class LookupKey { UP, DOWN, ACCEPT, CANCEL }
 data class SessionState(
     val log: List<String> = emptyList(),
     val failure: String? = null,
+    /** Set when the connection failed or dropped; [failure] also holds errors the session carries on after. */
+    val connectionLost: String? = null,
     val projectName: String? = null,
     val tree: ProjectTree = ProjectTree(),
     val editors: List<EditorFile> = emptyList(),

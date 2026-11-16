@@ -9,6 +9,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import intellijandroid.client.connection.ClientCertificate
 import intellijandroid.client.connection.JoinLink
 import intellijandroid.client.desktop.DesktopResources
 import intellijandroid.client.desktop.Snapshots
@@ -19,7 +20,10 @@ import intellijandroid.client.ui.LocalIcons
 import java.io.File
 import kotlin.system.exitProcess
 
-/** Desktop entry point. Usage: `<join link> [absolute file path on the backend to open at start]`. */
+/**
+ * Desktop entry point. Usage: `<join link> [absolute file path on the backend to open at start]`.
+ * Optional `CLIENT_IDENTITY=<file>` stores the client identity, so a restarted client can use the same join link again.
+ */
 fun main(arguments: Array<String>) {
     if (arguments.isEmpty() || arguments.size > 2) {
         System.err.println("Usage: <join link, e.g. tcp://127.0.0.1:5990#jt=…&fp=…> [file path on the backend to open]")
@@ -30,7 +34,10 @@ fun main(arguments: Array<String>) {
     val clientLib = File(requireNotNull(System.getProperty("jetbrains.client.lib")) { "System property jetbrains.client.lib is not set (the Gradle run task sets it)" })
     val fonts = DesktopResources.fonts(clientLib)
 
-    val session = ClientSession(JoinLink.parse(arguments[0]), arguments.getOrNull(1))
+    // CLIENT_IDENTITY=<file>: keep the client identity there, so a restarted client can use the same join link again.
+    val identityFile = System.getenv("CLIENT_IDENTITY")?.let(::File)
+    val identity = identityFile?.takeIf { it.exists() }?.let { ClientCertificate.decode(it.readText()) }
+    val session = ClientSession(JoinLink.parse(arguments[0]), arguments.getOrNull(1), identity) { accepted -> identityFile?.writeText(accepted.encode()) }
     session.start()
     System.getenv("CLIENT_SNAPSHOT")?.let { Snapshots.start(File(it), session, clientLib, fonts) }
     application {
