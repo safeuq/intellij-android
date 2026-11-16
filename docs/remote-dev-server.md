@@ -1,6 +1,6 @@
 # IntelliJ's remote-dev server: how it behaves
 
-What we found out about IntelliJ's remote development backend while running it in Termux. Checked 2026-11-15/16 with IntelliJ IDEA 2026.3 (build `263.7307.200`) on `jbr-25` (`25.0.4.1b635.79`), a Galaxy S24+ on Android 17, and JetBrains Gateway `263.7307.184` on macOS. How to use it: [`running-the-backend.md`](running-the-backend.md). The connection side (tokens, reconnects, history): [`connections.md`](connections.md) and [`split-protocol.md`](split-protocol.md).
+What we found out about IntelliJ's remote development backend while running it in Termux. Checked 2026-11-15/16 with IntelliJ IDEA 2026.3 (build `263.7307.200`) on `jbr-25` (`25.0.4.1b635.79`), a Galaxy S24+ on Android 17, and JetBrains Gateway `263.7307.184` on macOS. How to use it: [`running-the-backend.md`](running-the-backend.md). The connection side (tokens, reconnects, history): [`connections.md`](connections.md) and [`split-protocol.md`](https://github.com/safeuq/ideate-editor/blob/main/docs/split-protocol.md).
 
 ## The launcher
 

@@ -8,7 +8,7 @@ Running IntelliJ IDEA's backend natively on Android, with no Linux VM or proot, 
 |---|---|
 | `jbr/`: JetBrains Runtime 25 built for Android (bionic), as a Termux package | Works. IntelliJ IDEA 2026.3's remote-dev server runs on it in Termux; JetBrains Client and Gateway on another machine edit, highlight and complete against it |
 | `backend/`: running IntelliJ on the phone | `intellij-backend` (setup, start/stop/status, a notification with a Stop button) and IntelliJ's file watcher built for Android |
-| `client/`: native frontend | Android app (connect screen with history, Project tree, editor with typing and completion, Islands Dark look) and a desktop build of the same code for development |
+| Native frontend | Moved to [safeuq/ideate-editor](https://github.com/safeuq/ideate-editor) (the IDEate Android app and a desktop build of the same code), with its docs: the split-mode protocol, the client and the IntelliJ look |
 
 Why a custom JBR: IntelliJ's remote-dev server needs JetBrains Runtime (`com.jetbrains.JBR.isGraphicsUtilsSupported()` must be `true`), and the JBR that ships with IntelliJ is built for glibc, which Android doesn't have.
 
@@ -25,15 +25,7 @@ All documentation is in [`docs/`](docs/):
 | [`fsnotifier.md`](docs/fsnotifier.md) | IntelliJ's file watcher built for Android |
 | [`remote-dev-server.md`](docs/remote-dev-server.md) | how IntelliJ's remote-dev server behaves: launcher, commands, status files, sessions, Gateway's steps, native parts that need glibc |
 | [`desktop-ui-on-the-phone.md`](docs/desktop-ui-on-the-phone.md) | IntelliJ's full window on the phone over VNC with XFCE: what works, VNC commands and behaviour |
-| [`connections.md`](docs/connections.md) | the app's connect screen (link, this-phone discovery, history) and the `intellij-backend` contract it relies on |
-| [`android-app.md`](docs/android-app.md) | build, install and run the Android app |
-| [`client.md`](docs/client.md) | the Compose client's code layout; run the desktop build |
-| [`split-protocol.md`](docs/split-protocol.md) | how JetBrains Client talks to the backend, and running rd on Android |
-| [`edit-protocol.md`](docs/edit-protocol.md) | the editing messages in detail |
-| [`completion-protocol.md`](docs/completion-protocol.md) | code completion over Fleet RPC |
-| [`structure-protocol.md`](docs/structure-protocol.md) | the Structure tool window over rd (`CodeStructureTreeModel`), and the Fleet RPC `StructureTreeApi` the Ctrl+F12 popup uses |
-| [`mobile-layout.md`](docs/mobile-layout.md) | the main window on phone and tablet, portrait and landscape: bars, swipes, which layout when |
-| [`intellij-look.md`](docs/intellij-look.md) | IntelliJ's Islands Dark look: colors, fonts, metrics, icons |
+| [`connections.md`](docs/connections.md) | the IDEate app's connect screen (link, this-phone discovery, history) and the `intellij-backend` contract it relies on |
 
 ## Layout
 
@@ -48,11 +40,6 @@ jbr/
 backend/checks/                small Java checks used on the phone
 backend/fsnotifier/            IntelliJ's file watcher built for Android: build.sh, our patch
 backend/termux/intellij-backend  setup/start/stop/status/link for the backend in Termux (called by the app)
-client/compose/                the Compose client, shared: connection/ (TLS, frames, rd wire), session/ (rd models), ui/
-client/desktop/                the JVM launcher for it (./gradlew :desktop:run)
-client/android/                the Android app on it (./gradlew :android:assembleDebug)
-client/spikes/rd-on-art/       checks that rd and the protocol models run on Android ART
-client/spikes/session-capture/ summarizes an rd trace recorded from JetBrains Client
 ```
 
 No upstream source is committed. `jbr/scripts/build.sh` fetches termux-packages at a pinned commit into `work/`, and the recipe downloads the JBR source tarball, checked against its SHA-256. `backend/fsnotifier/build.sh` downloads its source files from `intellij-community` at a pinned commit.

@@ -8,13 +8,13 @@ Decided with the user on 2026-11-16. The app's connect screen has three parts:
 
 Build order: saved pasted links first, then Termux on this phone, then SSH.
 
-Ownership: the screens and the connection logic belong to the UI session (`client/`). The phone side (the `intellij-backend` command, Termux setup) belongs to the runtime session (`backend/`). The contract between them is below.
+Ownership: the screens and the connection logic belong to the UI session ([IDEate](https://github.com/safeuq/ideate-editor)). The phone side (the `intellij-backend` command, Termux setup) belongs to the runtime session (`backend/`). The contract between them is below.
 
 ## Why history can't just store the link
 
 | Part of the link | Example | Lifetime |
 |---|---|---|
-| `jt` (join token) | `584c7a19-0df1-4798-be5c-7af786a00846` | **Used once** (seen 2026-11-16): when a client connects with it, the backend issues a new one. The same client id can use it again only to resume its own session; anyone else gets `Declining invalid token` (see `split-protocol.md`). `intellij-backend link` asks the backend for the current one (IntelliJ's status file keeps the first) |
+| `jt` (join token) | `584c7a19-0df1-4798-be5c-7af786a00846` | **Used once** (seen 2026-11-16): when a client connects with it, the backend issues a new one. The same client id can use it again only to resume its own session; anyone else gets `Declining invalid token` (see [`split-protocol.md`](https://github.com/safeuq/ideate-editor/blob/main/docs/split-protocol.md)). `intellij-backend link` asks the backend for the current one (IntelliJ's status file keeps the first) |
 | client id | `<SHA3-256 of the client's CA certificate>-<epoch ms>` | Chosen by the client. Kept, it can use the same `jt` again |
 | `fp` | 64 hex digits | Server certificate fingerprint; checked by the client |
 | host, port | `tcp://127.0.0.1:5990` | `0.0.0.0` or `127.0.0.1` as printed by the backend; the client puts in the address it actually reached |
