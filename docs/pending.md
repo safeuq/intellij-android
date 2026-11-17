@@ -11,9 +11,8 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
-| 3 | Search field's history popup (`SearchTextField(history = true)` shows the icon only) | runtime | in progress: built, emulator check next | 04f0664 |
 | 7 | Backend dialogs (Lux). Until then menu items that open a dialog stay greyed: Rename, New, Delete, Reformat Code, Find Usages, Paste from History, … Researched: Lux is a remote canvas (draw operations), the backend binds it only after the client sends `graphicsDevices`, which IDEate doesn't yet. Next: a recording spike (attach Lux, log what Rename sends), then a Canvas replay renderer and input | ui | researched | `docs/lux-protocol.md` (ideate-editor 1ce8a87) |
-| 8 | Paste from the Android soft keyboard (an `InputConnection` that takes `commitText`) | runtime | in progress: built, emulator check next | `docs/edit-protocol.md`, "Pasting from the Android soft keyboard" |
+| 10 | Phone portrait: the completion popup stays on screen after switching from the editor to a tool window page (seen on the emulator: `abstract` floating over the Project tree) | — | not started | `docs/mobile-layout.md` |
 
 ## Known limits (nothing to do now)
 
@@ -26,6 +25,8 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| Paste from the Android soft keyboard: input connection with text input, Gboard's clipboard clips pasted, resumed words handled (`docs/edit-protocol.md`) | ideate-editor 4bfde74 |
+| Search field's history popup (5 recent searches, newest first; shared on the connect screen); `TextField` keeps the caret at the end of text set from outside | ideate-editor a50902f |
 | SSH hosts ask "Take over?" when a running backend has another client; tested from the emulator (Cancel keeps the other client, Take over disconnects it) | ideate-editor 488ad12 |
 | Shared components tried on Android (emulator: Link, SSH page, Connect to SSH, host key question, Choose IDE and Project) and the 6d52c3e build installed on the phone (app only, not launched) | ideate-editor 6d52c3e (APK at `JBR/ideate-debug.apk`) |
 | SSH open-project end to end from Android (emulator → Mac): Keystore-held IDEate key, full BouncyCastle, host key question, launch, port forward, project open | ideate-editor 9d53776 |
