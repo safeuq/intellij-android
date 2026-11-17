@@ -12,7 +12,6 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
 | 11c | New ▸ Java Class: show the kind list (`BeTreeGrid`: Class, Interface, Enum, …) under the name field; today Enter creates the preselected Class | runtime | open | ideate-editor `docs/lux-protocol.md` section 10 |
-| 13 | Reopened editors: put back each file's caret and scroll position, as JetBrains Client does | ui | open | ideate-editor `docs/split-protocol.md`, "Reopening the last open editors" |
 
 ## Known limits (nothing to do now)
 
@@ -24,6 +23,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| #13: reopened files' carets put back (saved per file, also 1 s after edits and caret moves; restored once the caret version is in); each tab keeps its own scroll. Exact scroll position not kept: the caret line shows 5 lines below the top | ideate-editor 8029cee |
 | 11b: backend dialogs over Lux, the rest: a dialog's own popups open under their combo and take taps; paste goes in as one input method commit from the device's clipboard; the soft keyboard opens only for a focused text field (`inputLocation`). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor db50292, cf48962 |
 | New ▸ File, Directory and Java Class name popups (BeControl `activePopups`), with the backend's "already exists" hint (a Lux panel inside the popup, `BeneluxView`); New un-greyed in the Project tree menu. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 0df7356, c00fe77 |
 | Known limit removed: the SSH host key dialog now has Gateway's title "Connecting To Remote Host" (from the user's Gateway screenshot) | ideate-editor 2cfc803 |
