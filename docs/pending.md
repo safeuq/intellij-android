@@ -12,7 +12,6 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
 | 11c | New ▸ Java Class: show the kind list (`BeTreeGrid`: Class, Interface, Enum, …) under the name field; today Enter creates the preselected Class | runtime | open | ideate-editor `docs/lux-protocol.md` section 10 |
-| 11b | Backend dialogs over Lux, the rest: ~~a dialog's own popups~~ (done, ideate-editor db50292), paste into a dialog field through the backend clipboard, and on Android the soft keyboard only for dialogs with a text field | ui | popups done; paste and soft keyboard next | `docs/lux-protocol.md` sections 8, 9 |
 | 13 | Reopened editors: put back each file's caret and scroll position, as JetBrains Client does | ui | open | ideate-editor `docs/split-protocol.md`, "Reopening the last open editors" |
 
 ## Known limits (nothing to do now)
@@ -25,6 +24,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| 11b: backend dialogs over Lux, the rest: a dialog's own popups open under their combo and take taps; paste goes in as one input method commit from the device's clipboard; the soft keyboard opens only for a focused text field (`inputLocation`). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor db50292, cf48962 |
 | New ▸ File, Directory and Java Class name popups (BeControl `activePopups`), with the backend's "already exists" hint (a Lux panel inside the popup, `BeneluxView`); New un-greyed in the Project tree menu. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 0df7356, c00fe77 |
 | Known limit removed: the SSH host key dialog now has Gateway's title "Connecting To Remote Host" (from the user's Gateway screenshot) | ideate-editor 2cfc803 |
 | No foreground service or connection notification: with the screen off Doze may drop the connection; nothing is tried in the background, and it reconnects as soon as the app is back (user: "the intent is to make the reconnection seamless subject to standard doze rules") | ideate-editor 0df165d |
