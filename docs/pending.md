@@ -30,6 +30,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| Tapping the editor brings the soft keyboard back after Back hid it (user report; before, only switching panels did). Installed on the Tab; the S24+ was unreachable | ideate-editor 1514e5f |
 | The soft keyboard's Enter takes the selected suggestion instead of inserting a line break (user report; Gboard sends Enter as `commitText("\n")`). Installed on the S24+ and Tab (not launched) | ideate-editor 9addbba |
 | Typing and caret moves all refused after a reconnect ("not matched expected versions", user report): IDEate now does what JetBrains Client does, `dropAllRequests` then `getEditorStates`, on a second retry. Installed on the S24+ and Tab (not launched) | ideate-editor b886130 |
 | Typing stopped for good after the backend answered an edit with `RdRetryResponse` ("Request 79 not applied", user report): the backend drops requests with an older retry timestamp without answering. IDEate now keeps the backend's timestamp and re-sends the refused and later edits once, like JetBrains Client. Installed on the S24+ and Tab (not launched) | ideate-editor e0ee98b |
