@@ -11,8 +11,6 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
-| 1 | Shared UI components, last pieces: `component/Link.kt` and its callers (project paths, status links, the folder chooser's Show/Hide path); `IslandsDark.link` to the theme's text-link `#71A1FE` (now the measured `#538AF9`); ClientScreen's failure text to `textError`; folder chooser tree border `#2B2D30` → `#26282C` and separator → `ToolBar.separatorColor`; project badge colors; the gallery's focus samples clash | runtime | in progress | `docs/ui-components.md`, "What is still hand-built" (e830a15) |
-| 2 | Tool window stripe: the selected button's background. The theme key gives the accent `#3871E1`, the real client measured gray `#393B40`. Compare with a screenshot of IntelliJ before changing; the phone's bottom tabs follow it | runtime | open | `docs/ui-components.md` |
 | 3 | Search field's history popup (`SearchTextField(history = true)` shows the icon only) | — | not started | 04f0664 |
 | 4 | Try the shared components on Android: APK from current main, emulator check, install on the phone (`adb -s 100.66.92.44:5555 install -r …`, app only, not launched). The phone has the 32b2677 build | ui | not started | |
 | 5 | SSH from Android (emulator or phone) end to end: the Keystore secret store and the full BouncyCastle swap haven't run a real open-project yet | ui | not started | `docs/ssh-connections.md`, step 5 (desktop only) |
@@ -32,6 +30,8 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| Shared UI components, last pieces: `Link.kt` and its callers, `IslandsDark.link` = text-link `#71A1FE`, failure text `textError`, folder chooser border/separator from the theme, project avatar gradients, gallery focus samples | ideate-editor 6d52c3e |
+| Stripe selected button stays `#393B40`: the user's IntelliJ draws an open, unfocused tool window PUSHED (transparent white over the stripe); the blue `selectedBackground` is only for the focused one (`docs/ui-components.md`) | ideate-editor 6d52c3e |
 | Test SSH container `ideate-sshd` stopped (`SshSessionTest` needs it only with `IDEATE_SSH_TEST_*` set) | — |
 | Build reads `jetbrains.client.lib` from local.properties, as the user's checkout does | ideate-editor b35ff33, 2b38c4e |
 | "8 s before the host key question": 590 ms in the app; the delay was the test tool (cmux) | ideate-editor c54ac36 |
