@@ -11,7 +11,9 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
-| 11 | Backend dialogs, the rest: New ▸ File/Java Class/… (its name popup comes as `uiAutomationInteractionModel.activePopups` BeControl, not Lux), a dialog's own popups (Scope combo list, `LxWindow` popups untested), paste into a dialog field through the backend clipboard, and on Android the soft keyboard opening only for dialogs with a text field | — | open | `docs/lux-protocol.md` section 8 |
+| 11a | New ▸ File/Java Class/Directory name popups (`uiAutomationInteractionModel.activePopups` BeControl, not Lux); enables New in the Project tree's context menu | runtime | rebasing WIP (ideate-editor branch `be-popup` c4d9a05, `session/BackendPopups.kt`) | `docs/lux-protocol.md` section 8 |
+| 11b | Backend dialogs over Lux, the rest: a dialog's own popups (Scope combo list, `LxWindow` popups), paste into a dialog field through the backend clipboard, and on Android the soft keyboard for dialogs with a text field | ui | started | `docs/lux-protocol.md` section 8 |
+| 13 | Reopened editors: put back each file's caret and scroll position, as JetBrains Client does | ui | open | ideate-editor `docs/split-protocol.md`, "Reopening the last open editors" |
 
 ## Known limits (nothing to do now)
 
