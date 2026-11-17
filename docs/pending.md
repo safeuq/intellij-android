@@ -11,6 +11,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
+| 12 | Reopen the editors open when the project was last left, as Gateway does (JetBrains Client keeps that list itself; 263's `editor.rd.reopen.editors.on.frontend=true`) | ui | built and tested on the 5991 backend; ideate-editor branch `restore-editors` (a91f1d9), pushed after runtime's `user-fixes` lands (both change ConnectController) | ideate-editor `docs/split-protocol.md`, "Reopening the last open editors"; Before/After https://claude.ai/artifact/FEBAVGAHSP2MgniyYEh4fo |
 | 11 | Backend dialogs, the rest: New ▸ File/Java Class/… (its name popup comes as `uiAutomationInteractionModel.activePopups` BeControl, not Lux), a dialog's own popups (Scope combo list, `LxWindow` popups untested), paste into a dialog field through the backend clipboard, and on Android the soft keyboard opening only for dialogs with a text field | — | open | `docs/lux-protocol.md` section 8 |
 
 ## Known limits (nothing to do now)
