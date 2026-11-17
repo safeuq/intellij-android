@@ -12,7 +12,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
 | 17 | What started a Rename of `serializerInstance` while Backspace was held (user report, xtool on the phone): IntelliJ refused it (base method in jackson's jar) with the modal "Error" | runtime | investigating | docs/edit-protocol.md §8 |
-| 18 | Typing `psvm` showed no suggestion (user report) | runtime | investigating | |
+| 18 | Typing `psvm` showed no suggestion (user report). Shows on the emulator against the Mac backend, with key events and with Gboard. Likely the same stall as the retry fix: IDEate opens the autopopup only once every pending edit is answered. Recheck on the phone with e0ee98b | user | to recheck | |
 | 16 | Title bar, still to check on macOS: dragging, double-click zoom and full screen (traffic lights hidden). Android 16 desktop windowing checked on the emulator | user | waiting | docs/intellij-look.md section 15 |
 
 ## Known limits (nothing to do now)
@@ -25,13 +25,13 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
-| Typing stopped for good after the backend answered an edit with `RdRetryResponse` ("Request 79 not applied", user report): the backend drops requests with an older retry timestamp without answering. IDEate now keeps the backend's timestamp and re-sends the refused and later edits once, like JetBrains Client | ideate-editor e0ee98b |
+| Typing stopped for good after the backend answered an edit with `RdRetryResponse` ("Request 79 not applied", user report): the backend drops requests with an older retry timestamp without answering. IDEate now keeps the backend's timestamp and re-sends the refused and later edits once, like JetBrains Client. Installed on the S24+ and Tab (not launched) | ideate-editor e0ee98b |
 
 ## Done (2026-11-17)
 
 | Item | Commit |
 |---|---|
-| Wide backend dialogs stay readable: shrink to no less than 0.75, and a finger pans the rest without clicking what it pressed (user report via runtime: Refactoring's "Error" with a long jar path was 1920 dp, text about 3 px). Not yet on the S24+ and Tab: waiting for the user's go. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor a474715 |
+| Wide backend dialogs stay readable: shrink to no less than 0.75, and a finger pans the rest without clicking what it pressed (user report via runtime: Refactoring's "Error" with a long jar path was 1920 dp, text about 3 px). On the S24+ and Tab since 2026-11-18 (installed with e0ee98b, not launched). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor a474715 |
 | Split pill shows as soon as a finger presses the border, not only after the touch slop (user request) | ideate-editor 4476f1f |
 | Split gap widens to 12 dp around the pill while a finger drags (the pill filled the 4 dp gap; user request); mouse drags unchanged. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 6156ccc |
 | Phone upright (user request): a page at rest with one island draws it flush with the screen's sides and square; the gap and rounded corners come back, animated, while the pages move and while the page is split. APK installed on the phone and the tablet (not launched). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor ece876e |
