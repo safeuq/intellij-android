@@ -11,8 +11,12 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
-| 17 | What started a Rename of `serializerInstance` while Backspace was held (user report, xtool on the phone): IntelliJ refused it (base method in jackson's jar) with the modal "Error" | runtime | investigating | docs/edit-protocol.md §8 |
-| 18 | Typing `psvm` showed no suggestion (user report). Shows on the emulator against the Mac backend, with key events and with Gboard. Likely the same stall as the retry fix: IDEate opens the autopopup only once every pending edit is answered. Recheck on the phone with e0ee98b | user | to recheck | |
+| 17 | What started a Rename of `serializerInstance` while Backspace was held (user report, xtool on the phone): IntelliJ refused it (base method in jackson's jar) with the modal "Error" | runtime | todo | docs/edit-protocol.md §8 |
+| 18 | Typing `psvm` showed no suggestion (user report). Shows on the emulator against the Mac backend, with key events and with Gboard. Likely the same stall as the retry fix: IDEate opens the autopopup only once every pending edit is answered. Recheck on the phone with e0ee98b | user | todo | |
+| 19 | Recheck holding Backspace on the phone with e0ee98b: typing must keep working after a retry answer. Not seen end to end yet, the Mac backend never sent `RdRetryResponse` in tests | user | todo | docs/edit-protocol.md §8 |
+| 20 | Recovery when client and backend still disagree: JetBrains Client's `recoverWithModalDialog` fails the pending requests ("Version mismatch"), shows a modal progress and syncs the editor again. IDEate has nothing like it | runtime | todo | `FrontendAsyncRequestExecutorKt` in `intellij.rd.client.jar` |
+| 21 | After the hardware Escape key closes the completion popup, tapping the editor no longer shows the soft keyboard until the app restarts (emulator, `keyevent 111`; Back is fine) | ui | todo | |
+| 22 | Backspacing past the start of a completion prefix leaves the popup open with an empty prefix (emulator: `psvm` deleted, popup listed `clone()`, `equals()`, …); IntelliJ closes it | runtime | todo | |
 | 16 | Title bar, still to check on macOS: dragging, double-click zoom and full screen (traffic lights hidden). Android 16 desktop windowing checked on the emulator | user | waiting | docs/intellij-look.md section 15 |
 
 ## Known limits (nothing to do now)
