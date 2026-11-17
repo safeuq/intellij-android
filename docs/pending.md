@@ -23,6 +23,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| Wide backend dialogs stay readable: shrink to no less than 0.75, and a finger pans the rest without clicking what it pressed (user report via runtime: Refactoring's "Error" with a long jar path was 1920 dp, text about 3 px). Not yet on the S24+ and Tab: waiting for the user's go. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor a474715 |
 | Split pill shows as soon as a finger presses the border, not only after the touch slop (user request) | ideate-editor 4476f1f |
 | Split gap widens to 12 dp around the pill while a finger drags (the pill filled the 4 dp gap; user request); mouse drags unchanged. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 6156ccc |
 | Phone upright (user request): a page at rest with one island draws it flush with the screen's sides and square; the gap and rounded corners come back, animated, while the pages move and while the page is split. APK installed on the phone and the tablet (not launched). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor ece876e |
