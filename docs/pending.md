@@ -18,12 +18,12 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 | Item | Why | Details |
 |---|---|---|
 | Structure of a file with several views (Spring's Logical/Physical) shows only the first | `CodeStructureTreeModel` carries one view; JetBrains Client doesn't switch either | `docs/structure-protocol.md` |
-| The SSH host key dialog's title is "SSH" | Gateway's own title isn't in the bundles found | `connect/SshPage.kt` |
 
 ## Done (2026-11-17)
 
 | Item | Commit |
 |---|---|
+| Known limit removed: the SSH host key dialog now has Gateway's title "Connecting To Remote Host" (from the user's Gateway screenshot) | ideate-editor 2cfc803 |
 | No foreground service or connection notification: with the screen off Doze may drop the connection; nothing is tried in the background, and it reconnects as soon as the app is back (user: "the intent is to make the reconnection seamless subject to standard doze rules") | ideate-editor 0df165d |
 | #12: reopen the editors open when the project was last left, as Gateway does (the client keeps the list per project, `OpenEditors.kt`; reconnects too). Before/After https://claude.ai/artifact/FEBAVGAHSP2MgniyYEh4fo | ideate-editor bdc23a8 |
 | Screen off: a foreground service keeps the connection (20 min locked on the phone, still connected); a lost connection reconnects under "No connection to IDE Backend" for 2 minutes; Back from the editor goes to the connections screen; "Stopping IDE Backend" popup (user report "Broken windows"). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 6053d80 |
