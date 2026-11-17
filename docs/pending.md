@@ -12,7 +12,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
 | 3 | Search field's history popup (`SearchTextField(history = true)` shows the icon only) | runtime | in progress: built, emulator check next | 04f0664 |
-| 7 | Backend dialogs (Lux: `luxModel.components`). Until then menu items that open a dialog stay greyed: Rename, New, Delete, Reformat Code, Find Usages, Paste from History, … | — | not started | `docs/action-protocol.md`, sections 3 and "Not done" |
+| 7 | Backend dialogs (Lux). Until then menu items that open a dialog stay greyed: Rename, New, Delete, Reformat Code, Find Usages, Paste from History, … Researched: Lux is a remote canvas (draw operations), the backend binds it only after the client sends `graphicsDevices`, which IDEate doesn't yet. Next: a recording spike (attach Lux, log what Rename sends), then a Canvas replay renderer and input | ui | researched | `docs/lux-protocol.md` (ideate-editor 1ce8a87) |
 | 8 | Paste from the Android soft keyboard (an `InputConnection` that takes `commitText`) | runtime | in progress: built, emulator check next | `docs/edit-protocol.md`, "Pasting from the Android soft keyboard" |
 
 ## Known limits (nothing to do now)
