@@ -26,6 +26,7 @@ All documentation is in [`docs/`](docs/):
 | [`remote-dev-server.md`](docs/remote-dev-server.md) | how IntelliJ's remote-dev server behaves: launcher, commands, status files, sessions, Gateway's steps, native parts that need glibc |
 | [`desktop-ui-on-the-phone.md`](docs/desktop-ui-on-the-phone.md) | IntelliJ's full window on the phone over VNC with XFCE: what works, VNC commands and behaviour |
 | [`connections.md`](docs/connections.md) | the IDEate app's connect screen (link, this-phone discovery, history) and the `intellij-backend` contract it relies on |
+| [`pending.md`](docs/pending.md) | the one list of open work for the backend and the IDEate client: owner, status, where the details are |
 
 ## Layout
 
