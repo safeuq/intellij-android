@@ -24,6 +24,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| Start popup: IntelliJ's indeterminate bar (DarculaProgressBarUI's moving gradient); on narrow screens 16 dp from the sides with Cancel under the text at the right end (user report with a phone screenshot) | ideate-editor ac452cd |
 | Tree selection band: square where it meets the panel edge after a sideways scroll, as IntelliJ's viewport clips it (user report with a screenshot) | ideate-editor cab1b59 |
 | SSH host key question matches Gateway's: title "Connecting To Remote Host", `ssh-ed25519`, MD5 colon-hex fingerprint, OK / Cancel with Cancel focused; `MessageDialog(focused = …)` (user report with Gateway's screenshot) | ideate-editor 2cfc803 |
 | Backend dialogs over Lux: Rename, Delete (alert and Safe Delete), Reformat/Optimize options and other dialog actions now show and work on desktop and Android (painter by runtime, attach/window/input by ui) | ideate-editor b41edc0, a4ad924 |
