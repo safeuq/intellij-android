@@ -23,6 +23,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| Split pill shows as soon as a finger presses the border, not only after the touch slop (user request) | ideate-editor 4476f1f |
 | Split gap widens to 12 dp around the pill while a finger drags (the pill filled the 4 dp gap; user request); mouse drags unchanged. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 6156ccc |
 | Phone upright (user request): a page at rest with one island draws it flush with the screen's sides and square; the gap and rounded corners come back, animated, while the pages move and while the page is split. APK installed on the phone and the tablet (not launched). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor ece876e |
 | Android system bars (user request): the app's backgrounds behind the status and navigation bars on every version with light icons, no 3-button scrim, cutout filled, `Theme.Ideate` (no startup flash); the project tint runs up behind the status bar. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 50f29cf, 4646585 |
