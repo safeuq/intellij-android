@@ -15,6 +15,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 | 18 | Typing `psvm` showed no suggestion (user report). Shows on the emulator against the Mac backend, with key events and with Gboard. Likely the same stall as the retry fix: IDEate opens the autopopup only once every pending edit is answered. Recheck on the phone with e0ee98b | user | todo | |
 | 19 | Recheck holding Backspace and typing after a reconnect on the phone with b886130: typing must keep working after a retry answer. Recovery not seen end to end yet: the Mac backend never sent `RdRetryResponse` in tests | user | todo | docs/edit-protocol.md §8 |
 | 23 | Why the first edits after a reconnect went wrong: request 33, 25 s after connecting (phone, 2026-11-18 01:50:08 IST), got `RdRetryResponse("The offset was changed beyond recovering")`; the backend logged `IDocumentRangeShifter - Base version … is too old to shift from`. Recovery (b886130) now repairs it, but the cause is unknown | runtime | todo | docs/edit-protocol.md §8 |
+| 24 | Full analysis of the editor protocol (JetBrains Client and backend, decompiled) and an IDEate implementation that follows it: rebase instead of dropping edits, retries, recovery (user request) | runtime | in progress | docs/edit-protocol.md |
 | 21 | After the hardware Escape key closes the completion popup, tapping the editor no longer shows the soft keyboard until the app restarts (emulator, `keyevent 111`; Back is fine) | ui | todo | |
 | 22 | Backspacing past the start of a completion prefix leaves the popup open with an empty prefix (emulator: `psvm` deleted, popup listed `clone()`, `equals()`, …); IntelliJ closes it | runtime | todo | |
 | 16 | Title bar, still to check on macOS: dragging, double-click zoom and full screen (traffic lights hidden). Android 16 desktop windowing checked on the emulator | user | waiting | docs/intellij-look.md section 15 |
@@ -29,6 +30,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| The soft keyboard's Enter takes the selected suggestion instead of inserting a line break (user report; Gboard sends Enter as `commitText("\n")`). Installed on the S24+ and Tab (not launched) | ideate-editor 9addbba |
 | Typing and caret moves all refused after a reconnect ("not matched expected versions", user report): IDEate now does what JetBrains Client does, `dropAllRequests` then `getEditorStates`, on a second retry. Installed on the S24+ and Tab (not launched) | ideate-editor b886130 |
 | Typing stopped for good after the backend answered an edit with `RdRetryResponse` ("Request 79 not applied", user report): the backend drops requests with an older retry timestamp without answering. IDEate now keeps the backend's timestamp and re-sends the refused and later edits once, like JetBrains Client. Installed on the S24+ and Tab (not launched) | ideate-editor e0ee98b |
 
