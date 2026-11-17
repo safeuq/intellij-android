@@ -11,7 +11,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
-| 16 | Title bar, still to check: macOS dragging, double-click zoom and full screen (traffic lights hidden); Android desktop windowing on an Android 15+ emulator or device (needs a system image: the download was blocked in the ui session) | user | waiting | docs/intellij-look.md section 15 |
+| 16 | Title bar, still to check on macOS: dragging, double-click zoom and full screen (traffic lights hidden). Android 16 desktop windowing checked on the emulator | user | waiting | docs/intellij-look.md section 15 |
 
 ## Known limits (nothing to do now)
 
