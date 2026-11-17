@@ -11,12 +11,11 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
-| 17 | What started a Rename of `serializerInstance` while Backspace was held (user report, xtool on the phone): IntelliJ refused it (base method in jackson's jar) with the modal "Error" | ui | todo | docs/edit-protocol.md §8 |
+| 17 | What started the backend's "Refactoring cannot be performed" Error about jackson's `HandlerInstantiator.class` while Backspace was held in `serializerInstance` (user report, xtool on the phone) | ui | open: not reproduced, need the user's steps | Not reproduced on the Mac backend (`run()` overriding `Runnable.run`): adb DEL and a held Gboard Backspace deleted the name and on into the line above with no dialog. The title comes from `CommonRefactoringUtil.checkReadOnlyStatus`, which Rename, Safe Delete (`SafeDeleteHandler`, `DeleteHandler`) and in-place refactorings all call, so this may not have been a Rename. A suggested rename (the peer's guess) runs only from Enter with `promote.suggested.refactoring.in.editor` on (default off), the gutter bulb, the intention, or the "Rename usages" code vision. IDEate sends none of these, apart from `EditorEnter` for Enter. Next: ask the user for the exact steps (keyboard, any tap or Enter, the status line) and the phone backend's `options/other.xml` |
 | 18 | Typing `psvm` showed no suggestion (user report). Shows on the emulator against the Mac backend, with key events and with Gboard. Likely the same stall as the retry fix: IDEate opens the autopopup only once every pending edit is answered. Recheck on the phone with e0ee98b | user | todo | |
 | 19 | Recheck holding Backspace and typing after a reconnect on the phone with b886130: typing must keep working after a retry answer. Recovery not seen end to end yet: the Mac backend never sent `RdRetryResponse` in tests | user | todo | docs/edit-protocol.md §8 |
 | 23 | Why the first edits after a reconnect went wrong: request 33, 25 s after connecting (phone, 2026-11-18 01:50:08 IST), got `RdRetryResponse("The offset was changed beyond recovering")`; the backend logged `IDocumentRangeShifter - Base version … is too old to shift from`. Recovery (b886130) now repairs it, but the cause is unknown | runtime | todo | docs/edit-protocol.md §8 |
 | 24 | Full analysis of the editor protocol (JetBrains Client and backend, decompiled) and an IDEate implementation that follows it: rebase instead of dropping edits, retries, recovery (user request) | runtime | in progress | docs/edit-protocol.md |
-| 22 | Backspacing past the start of a completion prefix leaves the popup open with an empty prefix (emulator: `psvm` deleted, popup listed `clone()`, `equals()`, …); IntelliJ closes it | ui | todo | |
 | 16 | Title bar, still to check on macOS: dragging, double-click zoom and full screen (traffic lights hidden). Android 16 desktop windowing checked on the emulator | user | waiting | docs/intellij-look.md section 15 |
 
 ## Known limits (nothing to do now)
@@ -39,6 +38,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| Completion popup closes when Backspace reaches the prefix's start, as IntelliJ's lookup does (item 22): characters typed while it was open are truncated, past those completion restarts, at the start it closes. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 503c909 |
 | Wide backend dialogs stay readable: shrink to no less than 0.75, and a finger pans the rest without clicking what it pressed (user report via runtime: Refactoring's "Error" with a long jar path was 1920 dp, text about 3 px). On the S24+ and Tab since 2026-11-18 (installed with e0ee98b, not launched). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor a474715 |
 | Split pill shows as soon as a finger presses the border, not only after the touch slop (user request) | ideate-editor 4476f1f |
 | Split gap widens to 12 dp around the pill while a finger drags (the pill filled the 4 dp gap; user request); mouse drags unchanged. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 6156ccc |
