@@ -15,7 +15,6 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 | 18 | Typing `psvm` showed no suggestion (user report). Shows on the emulator against the Mac backend, with key events and with Gboard. Likely the same stall as the retry fix: IDEate opens the autopopup only once every pending edit is answered. Recheck on the phone with e0ee98b | user | todo | |
 | 19 | Recheck holding Backspace and typing after a reconnect on the phone with b886130: typing must keep working after a retry answer. Recovery not seen end to end yet: the Mac backend never sent `RdRetryResponse` in tests | user | todo | docs/edit-protocol.md §8 |
 | 23 | Why the first edits after a reconnect went wrong: request 33, 25 s after connecting (phone, 2026-11-18 01:50:08 IST), got `RdRetryResponse("The offset was changed beyond recovering")`; the backend logged `IDocumentRangeShifter - Base version … is too old to shift from`. Recovery (b886130) now repairs it, but the cause is unknown | runtime | todo | docs/edit-protocol.md §8 |
-| 24 | Full analysis of the editor protocol (JetBrains Client and backend, decompiled) and an IDEate implementation that follows it: rebase instead of dropping edits, retries, recovery (user request) | runtime | in progress | docs/edit-protocol.md |
 | 16 | Title bar, still to check on macOS: dragging, double-click zoom and full screen (traffic lights hidden). Android 16 desktop windowing checked on the emulator | user | waiting | docs/intellij-look.md section 15 |
 
 ## Known limits (nothing to do now)
@@ -28,6 +27,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| Editor protocol read in full on both sides (item 24, user request; docs/edit-protocol-client.md, docs/edit-protocol-backend.md) and followed: rebase and replay like JetBrains Client, typing never waits, retries resend every pending request once, failures drop one edit, version checks before and after each backend patch with recovery on a mismatch. Also fixed: an early answer took IDEate's versions back, so the next caret move or action was refused. Installed on the S24+ and Tab (not launched) | ideate-editor 28bf0fc |
 | Tapping the editor brings the soft keyboard back after the hardware Escape key hid it (item 21; same fix as the next row) | ideate-editor 1514e5f |
 | Tapping the editor brings the soft keyboard back after Back hid it (user report; before, only switching panels did). Installed on the Tab; the S24+ was unreachable | ideate-editor 1514e5f |
 | The soft keyboard's Enter takes the selected suggestion instead of inserting a line break (user report; Gboard sends Enter as `commitText("\n")`). Installed on the S24+ and Tab (not launched) | ideate-editor 9addbba |
