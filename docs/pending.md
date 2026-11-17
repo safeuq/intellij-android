@@ -12,7 +12,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
 | 11a | New ▸ File/Java Class/Directory name popups (`uiAutomationInteractionModel.activePopups` BeControl, not Lux); enables New in the Project tree's context menu | runtime | rebasing WIP (ideate-editor branch `be-popup` c4d9a05, `session/BackendPopups.kt`) | `docs/lux-protocol.md` section 8 |
-| 11b | Backend dialogs over Lux, the rest: a dialog's own popups (Scope combo list, `LxWindow` popups), paste into a dialog field through the backend clipboard, and on Android the soft keyboard for dialogs with a text field | ui | started | `docs/lux-protocol.md` section 8 |
+| 11b | Backend dialogs over Lux, the rest: ~~a dialog's own popups~~ (done, ideate-editor db50292), paste into a dialog field through the backend clipboard, and on Android the soft keyboard only for dialogs with a text field | ui | popups done; paste and soft keyboard next | `docs/lux-protocol.md` sections 8, 9 |
 | 13 | Reopened editors: put back each file's caret and scroll position, as JetBrains Client does | ui | open | ideate-editor `docs/split-protocol.md`, "Reopening the last open editors" |
 
 ## Known limits (nothing to do now)
@@ -27,7 +27,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 |---|---|
 | Known limit removed: the SSH host key dialog now has Gateway's title "Connecting To Remote Host" (from the user's Gateway screenshot) | ideate-editor 2cfc803 |
 | No foreground service or connection notification: with the screen off Doze may drop the connection; nothing is tried in the background, and it reconnects as soon as the app is back (user: "the intent is to make the reconnection seamless subject to standard doze rules") | ideate-editor 0df165d |
-| #12: reopen the editors open when the project was last left, as Gateway does (the client keeps the list per project, `OpenEditors.kt`; reconnects too). Before/After https://claude.ai/artifact/FEBAVGAHSP2MgniyYEh4fo | ideate-editor bdc23a8 |
+| #12: reopen the editors open when the project was last left, as Gateway does (the client keeps the list per project, `OpenEditors.kt`; reconnects too). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor bdc23a8 |
 | Screen off: a foreground service keeps the connection (20 min locked on the phone, still connected); a lost connection reconnects under "No connection to IDE Backend" for 2 minutes; Back from the editor goes to the connections screen; "Stopping IDE Backend" popup (user report "Broken windows"). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 6053d80 |
 | Start popup: IntelliJ's indeterminate bar (DarculaProgressBarUI's moving gradient); on narrow screens 16 dp from the sides with Cancel under the text at the right end (user report with a phone screenshot) | ideate-editor ac452cd |
 | Tree selection band: square where it meets the panel edge after a sideways scroll, as IntelliJ's viewport clips it (user report with a screenshot) | ideate-editor cab1b59 |
