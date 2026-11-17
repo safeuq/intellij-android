@@ -11,7 +11,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
-| 7 | Backend dialogs (Lux). Until then menu items that open a dialog stay greyed: Rename, New, Delete, Reformat Code, Find Usages, Paste from History, … Researched: Lux is a remote canvas (draw operations), the backend binds it only after the client sends `graphicsDevices`, which IDEate doesn't yet. Next: a recording spike (attach Lux, log what Rename sends), then a Canvas replay renderer and input | ui | researched | `docs/lux-protocol.md` (ideate-editor 1ce8a87) |
+| 7 | Backend dialogs (Lux). Until then menu items that open a dialog stay greyed: Rename, New, Delete, Reformat Code, Find Usages, Paste from History, … Spike done: attaching works, Rename arrives as `LxDialog`, takes focus + typing, closes on Escape; colors come as theme key names. Next: build it (attach, Compose window with a Canvas replay, input, lifecycle), then un-grey the dialog actions | ui | spiked, waiting for the go to build | `docs/lux-protocol.md` sections 5–6 (ideate-editor 226e8c3) |
 | 10 | Phone portrait: the completion popup stays on screen after switching from the editor to a tool window page (seen on the emulator: `abstract` floating over the Project tree) | — | not started | `docs/mobile-layout.md` |
 
 ## Known limits (nothing to do now)
