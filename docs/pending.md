@@ -13,7 +13,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 |---|---|---|---|---|
 | 14 | Tool window bar driven by the backend's tool windows (which ones, side, order, shown), with the ⋯ button for hidden ones; today a hard-coded enum (user report: Gateway shows Project, Commit, Pull Requests, Structure, ⋯ on their xtool project) | runtime | in progress | docs/intellij-look.md section 14 |
 | 15 | "Project ▾" view selector in the Project header (Project / Packages / Project Files …), bold combo label | runtime | in progress | docs/intellij-look.md section 14 |
-| 16 | Gateway-style title bar: on macOS the traffic lights inside the main toolbar row (JBR `CustomTitleBar`), the project-colour gradient on the toolbar; in Android desktop windowing (API 35+) the app's toolbar in the caption bar | ui | in progress | user request 2026-11-17 |
+| 16 | Title bar, still to check: macOS dragging, double-click zoom and full screen (traffic lights hidden); Android desktop windowing on an Android 15+ emulator or device (needs a system image: the download was blocked in the ui session) | user | waiting | docs/intellij-look.md section 15 |
 
 ## Known limits (nothing to do now)
 
@@ -25,6 +25,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| Main toolbar drawn in the title bar (user request): macOS through JBR's `CustomTitleBar` (traffic lights in the toolbar row, controls hit-tested), Android desktop windowing through a transparent caption bar (API 35+); IntelliJ's project gradient behind the toolbar. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 09ea620 |
 | Tool window bar, tree indent, git colours and titles as Gateway shows them (user report with Gateway and IDEate screenshots): bar buttons 32 with the highlight inside (24, `#FFFFFF29`, radius 4), bar 35; Project and Structure trees 3 dp less indented, text 3 after the icon; ignored/unversioned names in the scheme's file status colours, excluded rows on their scope's file colour; bold tool window titles; avatar initials as IntelliJ's (`xtool` → `X`). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 9ebbcd4 |
 | New ▸ Java Class: the kind list (Class, Interface, Record, Enum, Annotation, Exception; `BeTreeGrid`) under the name field; Up/Down through the backend's listeners, a tap selects | ideate-editor a9e8be8 |
 | #13: reopened files' carets put back (saved per file, also 1 s after edits and caret moves; restored once the caret version is in); each tab keeps its own scroll. Exact scroll position not kept: the caret line shows 5 lines below the top | ideate-editor 8029cee |
