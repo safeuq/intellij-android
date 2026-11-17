@@ -12,7 +12,6 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
 | 7 | Backend dialogs (Lux). Until then menu items that open a dialog stay greyed: Rename, New, Delete, Reformat Code, Find Usages, Paste from History, … Spike done: attaching works, Rename arrives as `LxDialog`, takes focus + typing, closes on Escape; colors come as theme key names. Next: build it (attach, Compose window with a Canvas replay, input, lifecycle), then un-grey the dialog actions | ui | spiked, waiting for the go to build | `docs/lux-protocol.md` sections 5–6 (ideate-editor 226e8c3) |
-| 10 | Phone portrait: the completion popup stays on screen after switching from the editor to a tool window page (seen on the emulator: `abstract` floating over the Project tree) | — | not started | `docs/mobile-layout.md` |
 
 ## Known limits (nothing to do now)
 
@@ -25,6 +24,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| #10 (runtime): the completion popup closes when the editor loses focus, so it no longer floats over a tool window page on a phone held upright; also checked Gboard's Text Editing Paste (`performContextMenuAction`) | ideate-editor 65394f5 |
 | Paste from the Android soft keyboard: input connection with text input, Gboard's clipboard clips pasted, resumed words handled (`docs/edit-protocol.md`) | ideate-editor 4bfde74 |
 | Search field's history popup (5 recent searches, newest first; shared on the connect screen); `TextField` keeps the caret at the end of text set from outside | ideate-editor a50902f |
 | SSH hosts ask "Take over?" when a running backend has another client; tested from the emulator (Cancel keeps the other client, Take over disconnects it) | ideate-editor 488ad12 |
