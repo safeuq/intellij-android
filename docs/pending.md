@@ -11,6 +11,8 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
+| 17 | What started a Rename of `serializerInstance` while Backspace was held (user report, xtool on the phone): IntelliJ refused it (base method in jackson's jar) with the modal "Error" | runtime | investigating | docs/edit-protocol.md §8 |
+| 18 | Typing `psvm` showed no suggestion (user report) | runtime | investigating | |
 | 16 | Title bar, still to check on macOS: dragging, double-click zoom and full screen (traffic lights hidden). Android 16 desktop windowing checked on the emulator | user | waiting | docs/intellij-look.md section 15 |
 
 ## Known limits (nothing to do now)
@@ -18,6 +20,12 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 | Item | Why | Details |
 |---|---|---|
 | Structure of a file with several views (Spring's Logical/Physical) shows only the first | `CodeStructureTreeModel` carries one view; JetBrains Client doesn't switch either | `docs/structure-protocol.md` |
+
+## Done (2026-11-18)
+
+| Item | Commit |
+|---|---|
+| Typing stopped for good after the backend answered an edit with `RdRetryResponse` ("Request 79 not applied", user report): the backend drops requests with an older retry timestamp without answering. IDEate now keeps the backend's timestamp and re-sends the refused and later edits once, like JetBrains Client | ideate-editor e0ee98b |
 
 ## Done (2026-11-17)
 
