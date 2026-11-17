@@ -11,8 +11,6 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
-| 14 | Tool window bar driven by the backend's tool windows (which ones, side, order, shown), with the ⋯ button for hidden ones; today a hard-coded enum (user report: Gateway shows Project, Commit, Pull Requests, Structure, ⋯ on their xtool project) | runtime | in progress | docs/intellij-look.md section 14 |
-| 15 | "Project ▾" view selector in the Project header (Project / Packages / Project Files …), bold combo label | runtime | in progress | docs/intellij-look.md section 14 |
 | 16 | Title bar, still to check: macOS dragging, double-click zoom and full screen (traffic lights hidden); Android desktop windowing on an Android 15+ emulator or device (needs a system image: the download was blocked in the ui session) | user | waiting | docs/intellij-look.md section 15 |
 
 ## Known limits (nothing to do now)
@@ -25,6 +23,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| #14, #15: the tool window bar shows the backend's tool windows (`solution.toolWindowModel`) in the new UI's default order, with ⋯ for the other available ones; plugin icons from the SVG the backend sends; the Project header is a "Project ▾" selector (Project, Packages, each scope), Packages and the scopes drawn from the backend's BeTreeGrid; files the backend opens get their tab name from `vfsModel.findFile`. Not yet: icons in Packages and the scopes (none sent), the user's own layout (`docs/tool-windows.md`). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 9fe1d06 |
 | Main toolbar drawn in the title bar (user request): macOS through JBR's `CustomTitleBar` (traffic lights in the toolbar row, controls hit-tested), Android desktop windowing through a transparent caption bar (API 35+); IntelliJ's project gradient behind the toolbar. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 09ea620 |
 | Tool window bar, tree indent, git colours and titles as Gateway shows them (user report with Gateway and IDEate screenshots): bar buttons 32 with the highlight inside (24, `#FFFFFF29`, radius 4), bar 35; Project and Structure trees 3 dp less indented, text 3 after the icon; ignored/unversioned names in the scheme's file status colours, excluded rows on their scope's file colour; bold tool window titles; avatar initials as IntelliJ's (`xtool` → `X`). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 9ebbcd4 |
 | New ▸ Java Class: the kind list (Class, Interface, Record, Enum, Annotation, Exception; `BeTreeGrid`) under the name field; Up/Down through the backend's listeners, a tap selects | ideate-editor a9e8be8 |
