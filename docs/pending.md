@@ -31,6 +31,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| Backend dialogs follow every preferred size, as JetBrains Client does (the decompiler licence dialog showed 555 × 158 with its buttons cut off; it needs 389). Not yet seen on that dialog: the test backend stopped calling `beforeFileOpened` after 18:40 on 2026-11-18, so the decompiler no longer asks; next, a backend with a fresh settings folder. Project tree: classes in jars and the JDK open (were "Backend has no file"), checked with ArrayList.class | ideate-editor 49c7abc |
 | Editor gutter: the line numbers started at the island's edge; IntelliJ's empty annotation area and gap after the VCS markers now come first (normal 4 + 4, compact 0 + 2), and the gaps after the numbers and icons follow the density. The desktop is compact because the user's IntelliJ is; JetBrains Client runs at normal density (its own settings). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 4f2506c |
 
 ## Done (2026-11-18)
