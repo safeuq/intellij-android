@@ -11,7 +11,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
-| 30 | An on-screen Undo / Redo for touch. Not the main toolbar's ⋮ (the run widget's). IntelliJ has them in the main menu's Edit menu | user | needs a decision: where | ideate-editor docs/feature-parity-plan.md, section 1 |
+| 30 | Keyboard bar: an extra bar below the tool window bar, shown while the virtual keyboard is open, for on-screen Undo and Redo (and later Find, Replace). Not the main toolbar's ⋮, which is the run widget's | ui | decided by the user 2026-11-18; not to be built yet | ideate-editor docs/feature-parity-plan.md, section 1 |
 | 26 | Find and replace in the editor (IntelliJ's search bar, matching in IDEate, Replace as a patch) | ui | planned, waiting for the user's review | docs/feature-parity-plan.md, plan section 3 |
 | 27 | Cmd+Click / Ctrl+B: go to declaration or usages; follow the backend's editor selection; usages popup | ui | planned, waiting for the user's review | docs/feature-parity-plan.md, plan section 2 |
 | 28 | Find in Files and Replace in Files popup over Fleet RPC `FindInFilesApi` | ui | planned, waiting for the user's review | docs/feature-parity-plan.md, plan section 4 |
