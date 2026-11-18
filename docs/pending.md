@@ -27,6 +27,12 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 |---|---|---|
 | Structure of a file with several views (Spring's Logical/Physical) shows only the first | `CodeStructureTreeModel` carries one view; JetBrains Client doesn't switch either | `docs/structure-protocol.md` |
 
+## Done (2026-11-19)
+
+| Item | Commit |
+|---|---|
+| Editor gutter: the line numbers started at the island's edge; IntelliJ's empty annotation area and gap after the VCS markers now come first (normal 4 + 4, compact 0 + 2), and the gaps after the numbers and icons follow the density. The desktop is compact because the user's IntelliJ is; JetBrains Client runs at normal density (its own settings). Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 4f2506c |
+
 ## Done (2026-11-18)
 
 | Item | Commit |
