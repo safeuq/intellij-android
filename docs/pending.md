@@ -33,6 +33,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| Connect screen: "Take over?" and "Take back" in IntelliJ's message dialog instead of inline text and buttons under the header (user request); titles "IDE Backend In Use" and "Disconnected", Cancel focused. Checked in the component gallery, not yet on the phone. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 61f98c9 |
 | Progress popup: the round × made it 20 dp taller than without it (user report with the Stopping and Connecting popups); the × now has zero height, drawn centred on the bar. Checked in an off-screen render at 379 dp, not yet on the phone. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor f86bef4 |
 
 ## Done (2026-11-19)
