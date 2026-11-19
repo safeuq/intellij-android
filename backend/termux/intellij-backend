@@ -17,8 +17,9 @@
 # ~/.cache/JetBrains/RemoteDev/active/ (one per running backend, named by its PID), the same files
 # JetBrains Gateway reads over SSH.
 #
-# While a backend runs, Termux:API shows an ongoing notification with a Stop button (needs the
-# Termux:API app; without it the backend still runs, just without the notification). `setup`
+# While a backend runs, Termux:API shows an ongoing notification on the "IntelliJ Backend" channel:
+# starting (Cancel), running with its projects (Stop), stopping. It needs the Termux:API app;
+# without it the backend still runs, just without the notification. `setup`
 # puts a wrapper in place of IntelliJ's bin/remote-dev-server.sh, so this also happens for
 # backends that JetBrains Gateway or a hand-typed `remote-dev-server.sh run` starts.
 #
@@ -35,6 +36,12 @@ readonly DEFAULT_PORT=5990
 readonly START_TIMEOUT_SECONDS=180
 readonly STOP_TIMEOUT_SECONDS=60
 readonly NOTIFICATION_ID="intellij-backend"
+readonly NOTIFICATION_CHANNEL="intellij-backend"
+readonly NOTIFICATION_CHANNEL_NAME="IntelliJ Backend"
+# One of Termux:API's own icons (ic_<name>_black_24dp); it can't load one from a file.
+readonly NOTIFICATION_ICON="code"
+# The process group of the launcher that command_run started, while it runs.
+readonly LAUNCHER_PID_FILE="$LOG_DIR/launcher.pid"
 readonly ANDROID_APP_ACTIVITY="intellijandroid.client.android/.MainActivity"
 # setup moves IntelliJ's launcher here and puts a wrapper in its place.
 readonly REAL_LAUNCHER_NAME="remote-dev-server.real.sh"
@@ -132,6 +139,7 @@ open_in_running_backend() {
 	while [[ $waited_seconds -lt $START_TIMEOUT_SECONDS ]]; do
 		live_status="$(live_status_json "$status_file")"
 		if has_project "$live_status" "$project"; then
+			show_notification running "$live_status"
 			jq -r '.joinLink' <<<"$live_status"
 			return
 		fi
@@ -151,20 +159,74 @@ other_intellij_pid() {
 	pgrep -f 'com\.intellij\.idea\.Main' | head -n 1 || true
 }
 
-# termux-notification waits forever when the Termux:API app is missing, hence the timeout.
+# The notification has its own channel, so it can be silenced or hidden on its own in Android's
+# settings. Not with termux-notification-channel: it doesn't quote the name, so "IntelliJ Backend"
+# would become "IntelliJ". Creating it again only renames it, so it's done before every post.
+create_notification_channel() {
+	timeout 10 "$TERMUX_PREFIX/libexec/termux-api" NotificationChannel \
+		--es id "$NOTIFICATION_CHANNEL" \
+		--es name "$NOTIFICATION_CHANNEL_NAME" \
+		>/dev/null 2>&1 || true
+}
+
+# $1: starting, running or stopping; for running, $2 is the live status (its open projects).
+# Termux:API has no progress bar (termux/termux-api#600), so starting and stopping end in "...".
+# Its status-bar icon can only be one of its own (Material) icons; IntelliJ's logo goes in as the
+# large icon. termux-notification waits forever when the Termux:API app is missing, hence the
+# timeouts.
 show_notification() {
-	local -r project_name="$1"
+	local -r state="$1"
+	local title content="" button=""
+	case "$state" in
+		starting)
+			title="IntelliJ IDE Backend is starting..."
+			content="This may take a few minutes"
+			button="Cancel"
+			;;
+		running)
+			title="IntelliJ IDE Backend is running"
+			content="$(jq -r '[.projects[]?.projectPath | split("/") | last] | join(", ")' <<<"$2")"
+			content="Projects: ${content:-none}"
+			button="Stop"
+			;;
+		stopping) title="IntelliJ IDE Backend is stopping..." ;;
+		*) fail "$EXIT_FAILED" "unknown notification state: $state" ;;
+	esac
+	local -a options=()
+	if [[ -n "$button" ]]; then
+		options+=(--button1 "$button" --button1-action "$TERMUX_PREFIX/bin/intellij-backend stop")
+	fi
+	local -r logo="$(dirname "$(intellij_launcher)")/idea.png"
+	[[ -f "$logo" ]] && options+=(--image-path "$logo")
+	create_notification_channel
 	timeout 10 termux-notification \
 		--id "$NOTIFICATION_ID" \
+		--channel "$NOTIFICATION_CHANNEL" \
 		--ongoing \
 		--alert-once \
 		--priority low \
-		--title "IntelliJ backend running" \
-		--content "$project_name" \
+		--icon "$NOTIFICATION_ICON" \
+		--title "$title" \
+		--content "$content" \
 		--action "am start -n $ANDROID_APP_ACTIVITY" \
-		--button1 "Stop" \
-		--button1-action "$TERMUX_PREFIX/bin/intellij-backend stop" \
+		"${options[@]}" \
 		>/dev/null 2>&1 || true
+}
+
+# Shows "running" once the backend answers and, given a project ($1), lists it.
+show_running_when_listed() {
+	local -r project="${1:-}"
+	local waited_seconds=0 status_file live_status
+	while [[ $waited_seconds -lt $START_TIMEOUT_SECONDS ]]; do
+		status_file="$(running_status_file)"
+		if [[ -n "$status_file" ]] && live_status="$(live_status_json "$status_file" 2>/dev/null)" \
+			&& { [[ -z "$project" ]] || has_project "$live_status" "$project"; }; then
+			show_notification running "$live_status"
+			return
+		fi
+		sleep 2
+		waited_seconds=$((waited_seconds + 2))
+	done
 }
 
 release_backend_resources() {
@@ -173,23 +235,40 @@ release_backend_resources() {
 }
 
 # The backend's parent, for every way it starts (start, the launcher wrapper for Gateway or by
-# hand): takes the wake lock, shows the notification, runs IntelliJ's launcher, waits for it, then
-# removes the notification and releases the wake lock. The launcher outlives IntelliJ's own
-# restarts (exit code 88 starts a new JVM) and exits only when the backend is gone for good:
-# stop, crash, or killed by Android.
+# hand): takes the wake lock, shows "starting", runs IntelliJ's launcher, shows "running" once the
+# backend answers, waits for the launcher, then removes the notification and releases the wake
+# lock. The launcher outlives IntelliJ's own restarts (exit code 88 starts a new JVM) and exits
+# only when the backend is gone for good: stop, crash, or killed by Android.
 command_run() {
 	[[ $# -ge 1 ]] || usage
 	local -r launcher="$1"
 	shift
-	# `run <project> [options]`; without a project IntelliJ opens none.
-	local project_name="no project"
-	[[ $# -ge 1 && "$1" != -* ]] && project_name="$(basename "$1")"
 	# Tells the launcher wrapper that this is already the parent.
 	export INTELLIJ_BACKEND_RUN=1
+	# A second project for the running backend (Gateway, or `run` by hand): the launcher hands it
+	# over and exits at once. The backend keeps its wake lock and notification; the notification
+	# then lists the new project too.
+	if [[ -n "$(running_status_file)" ]]; then
+		"$launcher" run "$@" || true
+		if [[ $# -ge 1 && "$1" != -* && -d "$1" ]]; then
+			setsid "$0" internal-notify "$(realpath "$1")" </dev/null >/dev/null 2>&1 &
+		fi
+		return 0
+	fi
 	# Keeps Android from suspending Termux while the screen is off.
 	termux-wake-lock 2>/dev/null || true
-	show_notification "$project_name"
-	"$launcher" run "$@" || true
+	show_notification starting
+	mkdir -p "$LOG_DIR"
+	# Its own process group, so that stop (the notification's Cancel) can end the launcher and its
+	# JVM before the backend has written its status file.
+	setsid "$launcher" run "$@" &
+	local -r launcher_pid=$!
+	echo "$launcher_pid" >"$LAUNCHER_PID_FILE"
+	show_running_when_listed &
+	local -r notifier_pid=$!
+	wait "$launcher_pid" || true
+	kill "$notifier_pid" 2>/dev/null || true
+	rm -f "$LAUNCHER_PID_FILE"
 	release_backend_resources
 }
 
@@ -276,6 +355,8 @@ command_setup() {
 	install_launcher_wrapper "$intellij_bin"
 	use_android_fsnotifier "$intellij_home"
 	register_with_gateway "$launcher" "$intellij_home"
+	create_notification_channel
+	echo "Notification channel: $NOTIFICATION_CHANNEL_NAME"
 
 	echo
 	echo "Left to you (Android settings this script can't change):"
@@ -405,9 +486,19 @@ command_status() {
 command_stop() {
 	[[ $# -eq 0 ]] || usage
 	local -r status_file="$(running_status_file)"
+	if [[ -z "$status_file" && -f "$LAUNCHER_PID_FILE" ]]; then
+		# Still starting (no status file yet): end the launcher's process group, see command_run.
+		local -r launcher_pid="$(<"$LAUNCHER_PID_FILE")"
+		if [[ -d "/proc/$launcher_pid" ]]; then
+			show_notification stopping
+			echo "Cancelling the backend that is starting (launcher pid $launcher_pid)" >&2
+			kill -- "-$launcher_pid" 2>/dev/null || true
+		fi
+	fi
 	if [[ -n "$status_file" ]]; then
 		local -r backend_pid="$(basename "$status_file")"
 		local -r project="$(project_of "$status_file")"
+		show_notification stopping
 		echo "Stopping the backend for $project (pid $backend_pid)" >&2
 		# IntelliJ's own stop: asks the backend to save and exit.
 		local stop_output
@@ -444,6 +535,8 @@ main() {
 		setup) command_setup "$@" ;;
 		# internal: started by start, see command_run
 		internal-run) command_run "$@" ;;
+		# internal: started by command_run for a second project
+		internal-notify) show_running_when_listed "$@" ;;
 		-h | --help | help) usage ;;
 		*) usage ;;
 	esac

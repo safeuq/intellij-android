@@ -71,7 +71,20 @@ The command is `intellij-backend`, at `$PREFIX/bin/intellij-backend` (`/data/dat
 | `status --json` | `{"running":true,"project":"/data/…/smoke","port":5990,"listenOn":"127.0.0.1","joinLink":"tcp://…","controllerConnected":true,"projects":[{"projectPath":"/data/…/smoke","controllerConnected":true},{"projectPath":"/data/…/commons","controllerConnected":false}]}` or `{"running":false}`. `project`: the project in IntelliJ's status file, which IntelliJ rewrites to the **last** project opened (seen on the phone 2026-11-19: after `start knowledge-base` in xtool's backend, `project` was knowledge-base); `projects` (since 2026-11-19): every open project, all on the same join link. `controllerConnected`: some client is connected now (could be this app) | `0`, `1` the backend didn't answer |
 | `stop` | nothing | `0` (also when not running). Stops the whole backend, every open project with it (seen on the phone 2026-11-19 with xtool and knowledge-base open) |
 
-While a backend runs, Termux:API shows an ongoing notification "IntelliJ backend running" (`termux-notification --id intellij-backend`). Tapping it opens the app (`intellijandroid.client.android/.MainActivity`); its Stop button runs `intellij-backend stop`. Every backend runs under a small parent (`intellij-backend internal-run`) that shows the notification, waits for IntelliJ's launcher, and then removes the notification and releases the wake lock. `start` uses it directly; for Gateway and hand-typed starts, the launcher wrapper that `intellij-backend setup` puts in place of `bin/remote-dev-server.sh` does. So that happens whenever the backend exits for good (stop, crash, killed by Android), and not on IntelliJ's own restarts (exit code 88), which the launcher handles in a loop. So the app doesn't need its own notification for the backend.
+While a backend runs, Termux:API shows an ongoing notification (`termux-notification --id intellij-backend`) on its own channel, "IntelliJ Backend" (id `intellij-backend`). Tapping it opens the app (`intellijandroid.client.android/.MainActivity`). It goes through three states:
+
+| State | Title | Text | Button |
+|---|---|---|---|
+| starting | IntelliJ IDE Backend is starting... | This may take a few minutes | Cancel |
+| running | IntelliJ IDE Backend is running | Projects: commons, xflow | Stop |
+| stopping | IntelliJ IDE Backend is stopping... | (none) | (none) |
+
+Both buttons run `intellij-backend stop`. While the backend is still starting (no status file yet), `stop` ends the launcher's process group, whose id is in `~/.local/state/intellij-backend/launcher.pid`. "Projects" lists the folder names of every open project; it is posted again when `start` or Gateway opens a second project. Termux:API can't do more (checked in its `NotificationAPI.java`, 2026-11-19):
+- no progress bar, so the starting and stopping titles end in "..." instead (open request: termux/termux-api#600);
+- the status-bar icon can only be one of Termux:API's own Material icons (`--icon code`); IntelliJ's logo (`bin/idea.png`) goes in as the large icon with `--image-path`, which also shows it as a big picture when the notification is expanded;
+- `termux-notification-channel` doesn't quote the channel name ("IntelliJ Backend" becomes "IntelliJ"), so the script calls `libexec/termux-api NotificationChannel` itself.
+
+Every backend runs under a small parent (`intellij-backend internal-run`) that shows the notification, waits for IntelliJ's launcher, and then removes the notification and releases the wake lock. `start` uses it directly; for Gateway and hand-typed starts, the launcher wrapper that `intellij-backend setup` puts in place of `bin/remote-dev-server.sh` does. So that happens whenever the backend exits for good (stop, crash, killed by Android), and not on IntelliJ's own restarts (exit code 88), which the launcher handles in a loop. So the app doesn't need its own notification for the backend.
 
 Without `--lan` the backend listens on `127.0.0.1` only (reachable from this phone and over SSH). With `--lan` it listens on `0.0.0.0`.
 
