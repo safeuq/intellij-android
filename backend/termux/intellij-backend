@@ -87,12 +87,20 @@ intellij_launcher() {
 	echo "$launcher"
 }
 
+# Whether process $1 exists. A process started over adb run-as (SELinux domain runas_app) exists
+# but is hidden from Termux's own side (untrusted_app: the app, Termux sessions, sshd): its /proc
+# entry gives "Permission denied" where a process that is gone gives "No such file". See
+# docs/running-the-backend.md, "Don't start the backend with adb run-as".
+process_exists() {
+	[[ -d "/proc/$1" ]] || [[ "$(LC_ALL=C ls -d "/proc/$1" 2>&1)" == *"Permission denied"* ]]
+}
+
 # Prints the status file of the running backend, if any. Files whose process is gone (a crash
 # leaves them behind) don't count.
 running_status_file() {
 	local status_file
 	for status_file in "$STATUS_DIR"/*; do
-		if [[ -d "/proc/$(basename "$status_file")" ]] && jq -e '.joinLink' "$status_file" >/dev/null 2>&1; then
+		if process_exists "$(basename "$status_file")" && jq -e '.joinLink' "$status_file" >/dev/null 2>&1; then
 			echo "$status_file"
 			return
 		fi
@@ -219,7 +227,7 @@ repost_notification() {
 	local live_status
 	if [[ -n "$status_file" ]] && live_status="$(live_status_json "$status_file" 2>/dev/null)"; then
 		show_notification running "$live_status"
-	elif [[ -f "$LAUNCHER_PID_FILE" && -d "/proc/$(<"$LAUNCHER_PID_FILE")" ]]; then
+	elif [[ -f "$LAUNCHER_PID_FILE" && -n "$(<"$LAUNCHER_PID_FILE")" ]] && process_exists "$(<"$LAUNCHER_PID_FILE")"; then
 		show_notification starting
 	fi
 }
@@ -508,7 +516,7 @@ command_stop() {
 	if [[ -z "$status_file" && -f "$LAUNCHER_PID_FILE" ]]; then
 		# Still starting (no status file yet): end the launcher's process group, see command_run.
 		local -r launcher_pid="$(<"$LAUNCHER_PID_FILE")"
-		if [[ -d "/proc/$launcher_pid" ]]; then
+		if process_exists "$launcher_pid"; then
 			show_notification stopping
 			echo "Cancelling the backend that is starting (launcher pid $launcher_pid)" >&2
 			kill -- "-$launcher_pid" 2>/dev/null || true
@@ -526,15 +534,15 @@ command_stop() {
 			echo "IntelliJ's stop command failed; waiting ${STOP_TIMEOUT_SECONDS}s, then ending the process" >&2
 		fi
 		local waited_seconds=0
-		while [[ -d "/proc/$backend_pid" && $waited_seconds -lt $STOP_TIMEOUT_SECONDS ]]; do
+		while process_exists "$backend_pid" && [[ $waited_seconds -lt $STOP_TIMEOUT_SECONDS ]]; do
 			sleep 1
 			waited_seconds=$((waited_seconds + 1))
 		done
-		if [[ -d "/proc/$backend_pid" ]]; then
+		if process_exists "$backend_pid"; then
 			echo "Still running after ${STOP_TIMEOUT_SECONDS}s; sending SIGTERM" >&2
 			kill "$backend_pid" 2>/dev/null || true
 			sleep 5
-			[[ ! -d "/proc/$backend_pid" ]] || fail "$EXIT_FAILED" "backend (pid $backend_pid) did not stop"
+			! process_exists "$backend_pid" || fail "$EXIT_FAILED" "backend (pid $backend_pid) did not stop"
 		fi
 	fi
 	release_backend_resources
