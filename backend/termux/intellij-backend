@@ -9,6 +9,9 @@
 #
 # Exit codes: 0 ok, 1 failed, 2 usage, 3 not running, 4 another IntelliJ uses the same settings.
 #
+# One backend serves every project it has open, through one join link: `start` for a second
+# project asks the running backend to open it too, as JetBrains Gateway does.
+#
 # The Android app calls this through Termux's RUN_COMMAND and over SSH, so the output and exit
 # codes are a contract: docs/connections.md. The state comes from IntelliJ's own status files in
 # ~/.cache/JetBrains/RemoteDev/active/ (one per running backend, named by its PID), the same files
@@ -105,6 +108,37 @@ live_status_json() {
 	jq -e '.joinLink' <<<"$output" >/dev/null 2>&1 \
 		|| fail "$EXIT_FAILED" "the backend (pid $(basename "$status_file")) didn't answer IntelliJ's status command"
 	echo "$output"
+}
+
+# Whether the running backend has $2 open: IntelliJ's status lists every open project.
+has_project() {
+	local -r live_status="$1" project="$2"
+	jq -e --arg project "$project" 'any(.projects[]?; .projectPath == $project)' <<<"$live_status" >/dev/null
+}
+
+# Opens $2 in the backend that is already running ($1 its status file), as Gateway does for a
+# second project: IntelliJ's launcher `run <project>` hands the project to the running instance
+# and exits at once. Waits until the backend lists it, then prints the join link (the same one
+# for every project).
+open_in_running_backend() {
+	local -r status_file="$1" project="$2"
+	local -r log_file="$LOG_DIR/open-$(date +%Y%m%d-%H%M%S).log"
+	mkdir -p "$LOG_DIR"
+	# INTELLIJ_BACKEND_RUN: past our launcher wrapper, so this short-lived run doesn't take the
+	# wake lock or remove the notification of the backend that is already running.
+	INTELLIJ_BACKEND_RUN=1 timeout 60 "$(intellij_launcher)" run "$project" </dev/null >"$log_file" 2>&1 \
+		|| fail "$EXIT_FAILED" "IntelliJ's launcher didn't hand $project to the running backend; log: $log_file"
+	local waited_seconds=0 live_status
+	while [[ $waited_seconds -lt $START_TIMEOUT_SECONDS ]]; do
+		live_status="$(live_status_json "$status_file")"
+		if has_project "$live_status" "$project"; then
+			jq -r '.joinLink' <<<"$live_status"
+			return
+		fi
+		sleep 2
+		waited_seconds=$((waited_seconds + 2))
+	done
+	fail "$EXIT_FAILED" "the running backend didn't open $project within ${START_TIMEOUT_SECONDS}s; log: $log_file"
 }
 
 project_of() {
@@ -280,14 +314,14 @@ command_start() {
 	local status_file
 	status_file="$(running_status_file)"
 	if [[ -n "$status_file" ]]; then
-		local -r running_project="$(project_of "$status_file")"
-		if [[ "$running_project" == "$project" ]]; then
-			local live_status
-			live_status="$(live_status_json "$status_file")"
+		local live_status
+		live_status="$(live_status_json "$status_file")"
+		if has_project "$live_status" "$project"; then
 			jq -r '.joinLink' <<<"$live_status"
 			return
 		fi
-		fail "$EXIT_CONFLICT" "a backend for $running_project is running; stop it first"
+		open_in_running_backend "$status_file" "$project"
+		return
 	fi
 	local -r other_pid="$(other_intellij_pid)"
 	[[ -z "$other_pid" ]] || fail "$EXIT_CONFLICT" "another IntelliJ is running (pid $other_pid), e.g. the desktop IntelliJ"
@@ -347,6 +381,8 @@ command_status() {
 	# A backend takes one client at a time: a new one with a valid token disconnects this one.
 	local -r controller_connected="$(jq '[.projects[]?.controllerConnected] | any' <<<"$live_status")"
 	local -r project="$(project_of "$status_file")"
+	# Every open project; `project` above is the one the backend started with.
+	local -r projects="$(jq -c '[.projects[]? | {projectPath, controllerConnected}]' <<<"$live_status")"
 	# tcp://127.0.0.1:5990#jt=… → 127.0.0.1, 5990
 	[[ "$join_link" =~ ^[a-z-]+://([^:/#]+):([0-9]+) ]] || fail "$EXIT_FAILED" "unexpected join link in $status_file"
 	local -r listen_address="${BASH_REMATCH[1]}" port="${BASH_REMATCH[2]}"
@@ -357,9 +393,11 @@ command_status() {
 			--arg listenOn "$listen_address" \
 			--arg joinLink "$join_link" \
 			--argjson controllerConnected "$controller_connected" \
-			'{running: true, project: $project, port: $port, listenOn: $listenOn, joinLink: $joinLink, controllerConnected: $controllerConnected}'
+			--argjson projects "$projects" \
+			'{running: true, project: $project, port: $port, listenOn: $listenOn, joinLink: $joinLink, controllerConnected: $controllerConnected, projects: $projects}'
 	else
 		echo "running: $project on $listen_address:$port (pid $(basename "$status_file")); client connected: $controller_connected"
+		jq -r '.[] | "  open: \(.projectPath)"' <<<"$projects"
 		echo "$join_link"
 	fi
 }
