@@ -29,6 +29,12 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 |---|---|---|
 | Structure of a file with several views (Spring's Logical/Physical) shows only the first | `CodeStructureTreeModel` carries one view; JetBrains Client doesn't switch either | `docs/structure-protocol.md` |
 
+## Done (2026-11-20)
+
+| Item | Commit |
+|---|---|
+| Progress popup: the round × made it 20 dp taller than without it (user report with the Stopping and Connecting popups); the × now has zero height, drawn centred on the bar. Checked in an off-screen render at 379 dp, not yet on the phone. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor f86bef4 |
+
 ## Done (2026-11-19)
 
 | Item | Commit |
