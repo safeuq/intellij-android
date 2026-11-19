@@ -208,9 +208,22 @@ show_notification() {
 		--icon "$NOTIFICATION_ICON" \
 		--title "$title" \
 		--content "$content" \
-		--action "am start -n $ANDROID_APP_ACTIVITY" \
+		--action "am start -n $ANDROID_APP_ACTIVITY; $TERMUX_PREFIX/bin/intellij-backend internal-notify" \
 		"${options[@]}" \
 		>/dev/null 2>&1 || true
+}
+
+# Termux:API dismisses its notifications when tapped (setAutoCancel(true), always), so tapping
+# opens the app and then posts the notification again: running with the projects open now, or
+# starting while the launcher hasn't written its status file yet.
+repost_notification() {
+	local -r status_file="$(running_status_file)"
+	local live_status
+	if [[ -n "$status_file" ]] && live_status="$(live_status_json "$status_file" 2>/dev/null)"; then
+		show_notification running "$live_status"
+	elif [[ -f "$LAUNCHER_PID_FILE" && -d "/proc/$(<"$LAUNCHER_PID_FILE")" ]]; then
+		show_notification starting
+	fi
 }
 
 # Shows "running" once the backend answers and, given a project ($1), lists it.
@@ -394,6 +407,14 @@ command_start() {
 
 	local status_file
 	status_file="$(running_status_file)"
+	# IntelliJ rewrites its status file when it opens or closes a project; read halfway through,
+	# the running backend looks like "another IntelliJ" (seen 2026-11-19). Look again first.
+	local attempt
+	for attempt in 1 2 3; do
+		[[ -z "$status_file" && -n "$(other_intellij_pid)" ]] || break
+		sleep 1
+		status_file="$(running_status_file)"
+	done
 	if [[ -n "$status_file" ]]; then
 		local live_status
 		live_status="$(live_status_json "$status_file")"
@@ -536,7 +557,9 @@ main() {
 		# internal: started by start, see command_run
 		internal-run) command_run "$@" ;;
 		# internal: started by command_run for a second project
-		internal-notify) show_running_when_listed "$@" ;;
+		# internal: started by command_run for a second project (with it), and by tapping the
+		# notification (without)
+		internal-notify) if [[ $# -eq 0 ]]; then repost_notification; else show_running_when_listed "$@"; fi ;;
 		-h | --help | help) usage ;;
 		*) usage ;;
 	esac
