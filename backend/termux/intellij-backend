@@ -171,9 +171,9 @@ create_notification_channel() {
 
 # $1: starting, running or stopping; for running, $2 is the live status (its open projects).
 # Termux:API has no progress bar (termux/termux-api#600), so starting and stopping end in "...".
-# Its status-bar icon can only be one of its own (Material) icons; IntelliJ's logo goes in as the
-# large icon. termux-notification waits forever when the Termux:API app is missing, hence the
-# timeouts.
+# Its status-bar icon can only be one of its own (Material) icons. No large icon: --image-path
+# also shows the picture big when the notification is expanded. termux-notification waits forever
+# when the Termux:API app is missing, hence the timeouts.
 show_notification() {
 	local -r state="$1"
 	local title content="" button=""
@@ -196,8 +196,6 @@ show_notification() {
 	if [[ -n "$button" ]]; then
 		options+=(--button1 "$button" --button1-action "$TERMUX_PREFIX/bin/intellij-backend stop")
 	fi
-	local -r logo="$(dirname "$(intellij_launcher)")/idea.png"
-	[[ -f "$logo" ]] && options+=(--image-path "$logo")
 	create_notification_channel
 	timeout 10 termux-notification \
 		--id "$NOTIFICATION_ID" \
