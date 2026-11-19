@@ -90,3 +90,14 @@ Commands run through Termux's RUN_COMMAND (the app) and Termux:API notification 
 - The backend needs about 2.5 GB of RAM.
 - A JDK for projects must be added by its real path, e.g. `/data/data/com.termux/files/usr/lib/jvm/java-21-openjdk`.
 - Projects in shared storage (`~/storage/shared`, `/storage/emulated/0`) and on SD cards can be opened, but prefer Termux's home (`~/…`) for code: shared storage has no symlinks, no executable files (`./gradlew` won't run), case-insensitive file names, and was about 195× slower writing 2,000 small files in a test. For other folders Android won't let Java list on the way down, add them with `-Djdk.nio.fs.unlistableDirectoryHints=/path/one:/path/two` (see `1004` in [`jbr-patches.md`](jbr-patches.md)).
+
+## Don't start the backend with adb run-as
+
+Seen 2026-11-19 on the S24: a backend started over adb (`adb shell run-as com.termux … intellij-backend start …`) runs in SELinux domain `runas_app`, while Termux itself, its RUN_COMMAND (the app's Start) and its sshd run in `untrusted_app_27`:
+
+| Process | Label |
+|---|---|
+| Termux (`com.termux`) | `u:r:untrusted_app_27:s0:c148,…` |
+| backend started with `adb shell run-as com.termux …` | `u:r:runas_app:s0:c148,…` |
+
+Commands from the Termux side can't see `/proc/<pid>` of `runas_app` processes, so `intellij-backend` there finds no running backend (no status file whose process is alive, no IntelliJ for `pgrep`). The app's `start` then took the "start a new backend" path: IntelliJ's launcher handed the project to the running JVM and exited, so the new parent removed the notification and released Termux's wake lock, and `start` failed with "the backend exited during startup" (exit 1). Start test backends from the app, a Termux session or SSH into Termux, never from adb run-as. Reading files and posting notifications over adb run-as is fine.
