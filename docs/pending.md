@@ -33,6 +33,10 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| Trees select on release, so a swipe that starts on a row no longer selects it; a sideways swipe asks the window under the finger whether it can scroll; Structure hides 30 s after its file's tab closes, not at once | ideate-editor cf3c345 |
+| Project and Structure headers get IntelliJ's buttons (user request: "same list as IntelliJ"): Project has Select Opened File, Expand Selected, Collapse All; Structure has Expand All, Collapse All; both end in Hide. A double tap on a Structure row goes to that place in the editor. Logical/Physical researched (docs/structure-protocol.md), not built. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 7b598ee |
+| Editors no longer reopen across projects (user report): saved open editors are keyed by the backend's project id (`project:<id>`), as JetBrains Client does, instead of by connection | ideate-editor f6c4cc2 |
+| Docs: the welcome project's Projects and Files pane is a Lux panel the backend draws (docs/tool-windows.md section 7) | ideate-editor 8bb307f |
 | Connect screen: "Take over?" and "Take back" in IntelliJ's message dialog instead of inline text and buttons under the header (user request); titles "IDE Backend In Use" and "Disconnected", Cancel focused. Checked in the component gallery, not yet on the phone. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 61f98c9 |
 | Progress popup: the round × made it 20 dp taller than without it (user report with the Stopping and Connecting popups); the × now has zero height, drawn centred on the bar. Checked in an off-screen render at 379 dp, not yet on the phone. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor f86bef4 |
 
