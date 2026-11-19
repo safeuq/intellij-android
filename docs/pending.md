@@ -33,6 +33,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | Item | Commit |
 |---|---|
+| Gradle tool window: the backend's tree (projects, tasks, icons) and its action toolbar (Sync, Execute Gradle Task, Offline, Expand/Collapse All, Build Tool Settings ▾), as JetBrains Client builds backend tool windows (BeToolWindow.state, BeIdeToolbar group with BeToolWindowId + BeContextId context). Other backend tool windows built the same way show too. Checked on the Mac with a small Gradle project; not yet on the phone. Not yet: the 4 gear actions, a toggle's pressed look, task output (Run tool window) | ideate-editor e5a19b8 |
 | Trees select on release, so a swipe that starts on a row no longer selects it; a sideways swipe asks the window under the finger whether it can scroll; Structure hides 30 s after its file's tab closes, not at once | ideate-editor cf3c345 |
 | Project and Structure headers get IntelliJ's buttons (user request: "same list as IntelliJ"): Project has Select Opened File, Expand Selected, Collapse All; Structure has Expand All, Collapse All; both end in Hide. A double tap on a Structure row goes to that place in the editor. Logical/Physical researched (docs/structure-protocol.md), not built. Before/After https://claude.ai/artifact/3pFKPSVPBhWN4BSsn7eycG | ideate-editor 7b598ee |
 | Editors no longer reopen across projects (user report): saved open editors are keyed by the backend's project id (`project:<id>`), as JetBrains Client does, instead of by connection | ideate-editor f6c4cc2 |
