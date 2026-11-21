@@ -11,6 +11,7 @@ a decision or an action from the user. Docs named without a repo are in ideate-e
 
 | # | Item | Owner | Status | Details |
 |---|---|---|---|---|
+| 38 | Terminal and consoles: the Terminal tool window (rd `TerminalModel` bytes, JediTerm core in IDEate, IntelliJ's reworked-terminal editor and tabs), the shared console view, Run/Debug, Build and Services. Starts with a protocol probe. Open questions: a soft-keyboard Esc/Ctrl/Tab/arrows row (IntelliJ has none), the phase order | ui | planned, waiting for the user's review | ideate-editor docs/terminal-and-consoles-plan.md (dc85846) |
 | 30 | Keyboard bar: an extra bar below the tool window bar, shown while the virtual keyboard is open, for on-screen Undo and Redo (and later Find, Replace). Not the main toolbar's ⋮, which is the run widget's | ui | decided by the user 2026-11-18; not to be built yet | ideate-editor docs/feature-parity-plan.md, section 1 |
 | 26 | Find and replace in the editor (IntelliJ's search bar, matching in IDEate, Replace as a patch) | ui | planned, waiting for the user's review | docs/feature-parity-plan.md, plan section 3 |
 | 28 | Find in Files and Replace in Files popup over Fleet RPC `FindInFilesApi` | ui | planned, waiting for the user's review | docs/feature-parity-plan.md, plan section 4 |
